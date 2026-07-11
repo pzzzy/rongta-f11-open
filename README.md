@@ -45,6 +45,17 @@ brew install libusb
 
 Protocol encoding, decoding, and dry runs do not require libusb.
 
+## Native iPhone/iPad printing
+
+The optional AirPrint bridge exposes a USB-connected F11 through the standard iOS Print sheet—no iOS app required. It accepts PDF, JPEG, PNG, and text jobs and preserves multipage documents.
+
+```bash
+brew install libusb openssl@3 pkg-config
+./Scripts/install-airprint-bridge.sh
+```
+
+See [Docs/AIRPRINT.md](Docs/AIRPRINT.md) for architecture, supported formats, verification, security, logs, and uninstall steps. See [THIRD_PARTY.md](THIRD_PARTY.md) for pinned dependency provenance and licenses.
+
 ## Build and test
 
 ```bash

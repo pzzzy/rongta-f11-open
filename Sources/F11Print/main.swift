@@ -1,5 +1,6 @@
 import AppKit
-import UniformTypeIdentifiers
+import Foundation
+import PDFKit
 import F11PrintCore
 
 @MainActor
@@ -130,6 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 func runCLI() throws {
     var arguments = Array(CommandLine.arguments.dropFirst())
+    if arguments.count == 2, arguments[0] == "--page-count" {
+        let url = URL(fileURLWithPath: arguments[1])
+        guard let document = PDFDocument(url: url), document.pageCount > 0 else { throw F11PrintError.notPDF }
+        print(document.pageCount)
+        return
+    }
     var dryRun = false, density = 8, speed = 16, copies = 1
     var output: URL?, pdf: URL?
     while !arguments.isEmpty {
@@ -161,7 +168,12 @@ func runCLI() throws {
     request.speed = speed
     request.copies = copies
     let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-    var resources = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+    var resources: URL
+    if let override = ProcessInfo.processInfo.environment["F11_RESOURCE_DIRECTORY"], !override.isEmpty {
+        resources = URL(fileURLWithPath: override)
+    } else {
+        resources = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
+    }
     if !FileManager.default.fileExists(atPath: resources.appendingPathComponent("f11usb").path),
        let bundleResources = Bundle.main.resourceURL {
         resources = bundleResources

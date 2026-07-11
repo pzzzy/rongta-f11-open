@@ -1,0 +1,17 @@
+{
+  VERSION 2.0
+  OPERATION Get-Printer-Attributes
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR naturalLanguage attributes-natural-language en
+  ATTR uri printer-uri $uri
+  EXPECT printer-state OF-TYPE enum
+  EXPECT document-format-supported COUNT 4
+  EXPECT document-format-supported WITH-VALUE application/pdf
+  EXPECT document-format-supported WITH-VALUE image/jpeg
+  EXPECT document-format-supported WITH-VALUE image/png
+  EXPECT document-format-supported WITH-VALUE text/plain
+  EXPECT media-supported COUNT 1 WITH-VALUE na_letter_8.5x11in
+  EXPECT printer-resolution-supported WITH-VALUE 203dpi
+  EXPECT sides-supported WITH-VALUE one-sided
+}

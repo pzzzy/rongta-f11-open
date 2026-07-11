@@ -1,0 +1,14 @@
+# F11 AirPrint capability overrides
+ATTR mimeMediaType document-format-default application/pdf
+ATTR mimeMediaType document-format-supported application/pdf,image/jpeg,image/png,text/plain
+ATTR resolution printer-resolution-default 203dpi
+ATTR resolution printer-resolution-supported 203dpi
+ATTR keyword print-color-mode-default monochrome
+ATTR keyword print-color-mode-supported monochrome
+ATTR boolean color-supported false
+ATTR keyword sides-default one-sided
+ATTR keyword sides-supported one-sided
+ATTR keyword media-default na_letter_8.5x11in
+ATTR keyword media-supported na_letter_8.5x11in
+ATTR rangeOfInteger copies-supported 1-255
+ATTR integer copies-default 1

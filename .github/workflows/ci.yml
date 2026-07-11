@@ -21,6 +21,11 @@ jobs:
         run: swift run F11CoreTests
       - name: Release build
         run: swift build -c release
+      - name: Shell quality
+        run: |
+          brew install shellcheck
+          bash -n Scripts/*.sh Tests/*.sh Tests/ipp/*.sh
+          shellcheck Scripts/*.sh Tests/*.sh Tests/ipp/*.sh
       - name: Blob and provenance guard
         run: |
           test -z "$(find . -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' -o -name '*.ppd' -o -name '*.pkg' -o -name '*.exe' \) -not -path './.git/*' -print)"
