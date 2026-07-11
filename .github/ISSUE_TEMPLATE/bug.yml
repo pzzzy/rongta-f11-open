@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible problem
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach proprietary drivers, private documents, or arbitrary printer streams.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Printer revision / USB identity
+      placeholder: VID, PID, firmware or label details if known
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Prefer a synthetic fixture and dry-run output summary.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS and Swift versions

@@ -1,0 +1,15 @@
+.build/
+dist/
+.swiftpm/
+.DS_Store
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.f11
+*.gray
+*.ras
+*.pdf
+*.png
+.env
+.env.*
+!.env.example

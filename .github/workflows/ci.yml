@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Test
+        run: swift run F11CoreTests
+      - name: Release build
+        run: swift build -c release
+      - name: Blob and provenance guard
+        run: |
+          test -z "$(find . -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' -o -name '*.ppd' -o -name '*.pkg' -o -name '*.exe' \) -not -path './.git/*' -print)"
+          ! grep -RIlE 'rastertoRTReceiptPrinters|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY' . --exclude-dir=.git --exclude=ci.yml
