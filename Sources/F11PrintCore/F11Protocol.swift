@@ -40,7 +40,15 @@ public final class F11Huffman: @unchecked Sendable {
     public let nodeCount: Int
     fileprivate init(root: Node) {
         self.root=root; var c=[[UInt8]](repeating:[],count:256); var n=0
-        func walk(_ x:Node,_ bits:[UInt8]) { n += 1; if x.leaf { if x.symbol < 256 { c[Int(x.symbol)] = bits.isEmpty ? [0] : bits }; return }; walk(x.left!,bits+[0]); walk(x.right!,bits+[1]) }
+        func walk(_ x:Node,_ bits:[UInt8]) {
+            n += 1
+            if x.leaf {
+                if x.symbol < 256 { c[Int(x.symbol)] = bits.isEmpty ? [0] : bits }
+                return
+            }
+            if let left=x.left { walk(left,bits+[0]) }
+            if let right=x.right { walk(right,bits+[1]) }
+        }
         walk(root,[]); codes=c; nodeCount=n
     }
     public static func build(from data: Data) -> F11Huffman {

@@ -15,7 +15,8 @@ final class DropView: NSView {
         layer?.borderColor = NSColor.separatorColor.cgColor
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -98,7 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let url = selected else { return }
         button.isEnabled = false
         status.stringValue = "Preparing…"
-        let resources = Bundle.main.resourceURL!
+        guard let resources = Bundle.main.resourceURL else {
+            status.stringValue = "Application resources are unavailable."
+            button.isEnabled = true
+            return
+        }
         Task.detached { [weak self] in
             do {
                 let request = try PrintRequest(pdf: url)
@@ -160,7 +165,11 @@ func runCLI() throws {
     let result = try PrintEngine().run(request, tools: ToolPaths(resourceDirectory: resources), outputDirectory: output) {
         fputs("\($0)\n", stderr)
     }
-    print(String(data: try JSONEncoder().encode(result), encoding: .utf8)!)
+    let json = try JSONEncoder().encode(result)
+    guard let outputJSON = String(data: json, encoding: .utf8) else {
+        throw F11PrintError.processFailed("Could not encode result as UTF-8.")
+    }
+    print(outputJSON)
 }
 
 if CommandLine.arguments.count > 1 {
