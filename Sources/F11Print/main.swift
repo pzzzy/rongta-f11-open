@@ -104,21 +104,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.isEnabled = true
             return
         }
-        Task.detached { [weak self] in
+        let progress: @Sendable (String) -> Void = { [weak self] message in
+            Task { @MainActor in self?.status.stringValue = message }
+        }
+        let worker = Task.detached {
+            let request = try PrintRequest(pdf: url)
+            return try PrintEngine().run(
+                request,
+                tools: ToolPaths(resourceDirectory: resources),
+                progress: progress
+            )
+        }
+        Task { @MainActor [weak self] in
             do {
-                let request = try PrintRequest(pdf: url)
-                let result = try PrintEngine().run(request, tools: ToolPaths(resourceDirectory: resources)) { message in
-                    Task { @MainActor in self?.status.stringValue = message }
-                }
-                await MainActor.run {
-                    self?.status.stringValue = "Sent \(result.count) page(s) to the F11"
-                    self?.button.isEnabled = true
-                }
+                let result = try await worker.value
+                self?.status.stringValue = "Sent \(result.count) page(s) to the F11"
+                self?.button.isEnabled = true
             } catch {
-                await MainActor.run {
-                    self?.status.stringValue = error.localizedDescription
-                    self?.button.isEnabled = true
-                }
+                self?.status.stringValue = error.localizedDescription
+                self?.button.isEnabled = true
             }
         }
     }
