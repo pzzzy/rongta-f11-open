@@ -4,7 +4,7 @@ Describe the change and its interoperability evidence.
 
 ## Validation
 
-- [ ] `swift test`
+- [ ] `swift run F11CoreTests`
 - [ ] `swift build -c release`
 - [ ] No proprietary files or private captures added
 - [ ] Synthetic tests added or updated
