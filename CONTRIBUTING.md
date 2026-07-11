@@ -10,7 +10,7 @@ Contributions are welcome, especially synthetic fixtures, documentation correcti
 4. Run:
 
 ```bash
-swift test
+swift run F11CoreTests
 swift build -c release
 ```
 
