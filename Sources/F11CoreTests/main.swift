@@ -53,6 +53,13 @@ import F11PrintCore
         corrupt[corrupt.startIndex + 12] ^= 1
         check((try? F11JobDecoder.decode(corrupt)) == nil, "corrupt frame rejected")
 
+        var shortBody=Data([0xa3,0x1e,0x1c,0,4,0,0,0,0,0])
+        let shortCRC=F11CRC.checksum(Data([0,0,0,0]));shortBody.appendLE(shortCRC)
+        check((try? F11JobDecoder.decode(shortBody)) == nil, "CRC-valid short body rejected")
+        var wrongType=whiteJob;wrongType[wrongType.startIndex+3]=1
+        check((try? F11JobDecoder.decode(wrongType)) == nil, "nonzero packet type rejected")
+        check(F11Frame(appClass:0x11,command:5,subcommand:1,payload:Data(repeating:0,count:65_531)).encoded.isEmpty, "oversized frame payload rejected")
+
         let rect = PageRenderer.fitRect(source: CGSize(width: 612, height: 792), canvas: CGSize(width: 1664, height: 2233), margin: 72)
         check(abs(rect.midX - 832) < 0.01 && abs(rect.midY - 1116.5) < 0.01, "PDF fit centers")
         check(rect.width <= 1520.01 && rect.height <= 2089.01, "PDF fit honors margins")

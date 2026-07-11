@@ -24,6 +24,7 @@ public struct F11Frame: Sendable {
     public let payload: Data
     public init(appClass: UInt8, command: UInt8, subcommand: UInt8, payload: Data) { self.appClass=appClass; self.command=command; self.subcommand=subcommand; self.payload=payload }
     public var encoded: Data {
+        guard payload.count <= 65_530 else { return Data() }
         var body=Data([appClass,command,subcommand]); body.appendLE(UInt16(payload.count)); body.append(payload)
         var out=Data([0xa3,0x1e,0x1c,0]); out.appendLE(UInt16(body.count)); out.append(body); out.appendLE(F11CRC.checksum(body)); return out
     }
@@ -126,7 +127,24 @@ public enum F11JobEncoder {
 }
 
 public enum F11JobDecoder {
-    static func frames(_ data:Data) throws -> [F11Frame] { var result=[F11Frame](),i=0;while i<data.count{guard i+15<=data.count,Array(data[i..<i+3]) == [0xa3,0x1e,0x1c] else{throw F11CodecError.invalid("sync")};let n=Int(data[i+4])|Int(data[i+5])<<8;let end=i+6+n+4;guard end<=data.count else{throw F11CodecError.invalid("truncated")};let body=data.subdata(in:i+6..<i+6+n);let crc=UInt32(data[end-4])|UInt32(data[end-3])<<8|UInt32(data[end-2])<<16|UInt32(data[end-1])<<24;guard F11CRC.checksum(body)==crc else{throw F11CodecError.invalid("CRC")};let plen=Int(body[3])|Int(body[4])<<8;guard plen==body.count-5 else{throw F11CodecError.invalid("length")};result.append(F11Frame(appClass:body[0],command:body[1],subcommand:body[2],payload:body.subdata(in:5..<body.count)));i=end};return result }
+    static func frames(_ data:Data) throws -> [F11Frame] {
+        var result=[F11Frame](),i=0
+        while i<data.count {
+            guard i+15<=data.count,Array(data[i..<i+3]) == [0xa3,0x1e,0x1c],data[i+3] == 0 else{throw F11CodecError.invalid("sync/type")}
+            let n=Int(data[i+4])|Int(data[i+5])<<8
+            guard n >= 5 else { throw F11CodecError.invalid("short body") }
+            let end=i+6+n+4
+            guard end<=data.count else{throw F11CodecError.invalid("truncated")}
+            let body=data.subdata(in:i+6..<i+6+n)
+            let crc=UInt32(data[end-4])|UInt32(data[end-3])<<8|UInt32(data[end-2])<<16|UInt32(data[end-1])<<24
+            guard F11CRC.checksum(body)==crc else{throw F11CodecError.invalid("CRC")}
+            let plen=Int(body[3])|Int(body[4])<<8
+            guard plen==body.count-5 else{throw F11CodecError.invalid("length")}
+            result.append(F11Frame(appClass:body[0],command:body[1],subcommand:body[2],payload:body.subdata(in:5..<body.count)))
+            i=end
+        }
+        return result
+    }
     public static func decodeRow(_ encoded:Data,tree:F11Huffman)->Data {
         guard let f=try? frames(encoded).first, f.payload.count >= 12 else{return Data()}
         let p=f.payload,pad=p[11]
@@ -154,11 +172,26 @@ public enum F11JobDecoder {
         guard data.count % 4 == 0, !data.isEmpty else { throw F11CodecError.invalid("tree size") }
         let n=data.count/4
         func word(_ offset:Int)->UInt16 { UInt16(data[offset]) | UInt16(data[offset+1])<<8 }
-        let pre=(0..<n).map{word($0*2)}, mid=(0..<n).map{word(n*2+$0*2)};var pi=0,order=0
+        let pre=(0..<n).map{word($0*2)}, mid=(0..<n).map{word(n*2+$0*2)}
+        guard Set(pre).count == n, Set(mid).count == n, Set(pre) == Set(mid) else {
+            throw F11CodecError.invalid("duplicate tree symbols")
+        }
+        var pi=0,order=0
         func build(_ lo:Int,_ hi:Int)throws->F11Huffman.Node {
             guard lo<hi,pi<n else{throw F11CodecError.invalid("tree traversal")};let s=pre[pi];pi += 1;guard let split=mid[lo..<hi].firstIndex(of:s) else{throw F11CodecError.invalid("tree symbol")};let node=F11Huffman.Node(s,0,order);order += 1
             if split>lo{node.left=try build(lo,split)};if split+1<hi{node.right=try build(split+1,hi)};return node
         }
-        let root=try build(0,n);guard pi==n else{throw F11CodecError.invalid("unused tree nodes")};return F11Huffman(root:root)
+        let root=try build(0,n)
+        guard pi==n else{throw F11CodecError.invalid("unused tree nodes")}
+        func validate(_ node:F11Huffman.Node)throws {
+            if node.leaf {
+                guard node.symbol < 256 else { throw F11CodecError.invalid("invalid leaf symbol") }
+                return
+            }
+            guard let left=node.left,let right=node.right else { throw F11CodecError.invalid("incomplete tree") }
+            try validate(left);try validate(right)
+        }
+        try validate(root)
+        return F11Huffman(root:root)
     }
 }

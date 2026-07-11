@@ -140,7 +140,7 @@ func runCLI() throws {
             guard let value = arguments.first, let parsed = Int(value), (1...15).contains(parsed) else { throw F11PrintError.invalidOption("Density must be between 1 and 15.") }
             density = parsed; arguments.removeFirst()
         case "--speed":
-            guard let value = arguments.first, let parsed = Int(value), parsed > 0 else { throw F11PrintError.invalidOption("Speed must be a positive integer.") }
+            guard let value = arguments.first, let parsed = Int(value), (1...255).contains(parsed) else { throw F11PrintError.invalidOption("Speed must be between 1 and 255.") }
             speed = parsed; arguments.removeFirst()
         case "--copies":
             guard let value = arguments.first, let parsed = Int(value), (1...255).contains(parsed) else { throw F11PrintError.invalidOption("Copies must be between 1 and 255.") }

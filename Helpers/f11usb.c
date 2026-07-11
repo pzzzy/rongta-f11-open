@@ -59,10 +59,11 @@ static int load_file(const char *path, uint8_t **data_out, long *size_out) {
 
 int main(int argc, char **argv) {
     if (argc != 2) {
-        fprintf(stderr, "usage: f11usb stream.f11\n");
+        fprintf(stderr, "usage: f11usb validated-stream.f11\n");
+        fprintf(stderr, "warning: this low-level helper does not validate protocol data\n");
         return 2;
     }
-
+    fprintf(stderr, "f11usb: sending a caller-supplied stream without protocol validation\n");
     uint8_t *data = NULL;
     long size = 0;
     if (load_file(argv[1], &data, &size) != 0) {
