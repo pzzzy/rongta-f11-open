@@ -3,6 +3,13 @@ set -euo pipefail
 umask 022
 [[ ${EUID:-$(id -u)} -eq 0 ]] || { echo 'Run with sudo.' >&2; exit 2; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+BUILD_DIR=$(mktemp -d /tmp/f11-install.XXXXXX)
+NFT_TMP=
+cleanup() {
+  rm -rf "$BUILD_DIR"
+  [[ -z $NFT_TMP ]] || rm -f "$NFT_TMP"
+}
+trap cleanup EXIT
 CONFIGURE_NFT=0
 for arg in "$@"; do
   case "$arg" in
@@ -20,17 +27,17 @@ apt-get install -y --no-install-recommends golang-go cups cups-client cups-filte
 cd "$ROOT"
 go test ./...
 go vet ./...
-CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/f11d-install ./cmd/f11d
+CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/f11d" ./cmd/f11d
 getent group f11print >/dev/null || groupadd --system f11print
 id -u f11print >/dev/null 2>&1 || useradd --system --home-dir /var/lib/f11 --create-home --shell /usr/sbin/nologin --gid f11print f11print
 usermod -aG lp f11print
 install -d -o root -g root -m0755 /usr/local/lib/f11
-install -o root -g root -m0755 /tmp/f11d-install /usr/local/lib/f11/f11d
+install -o root -g root -m0755 "$BUILD_DIR/f11d" /usr/local/lib/f11/f11d
 install -d -o f11print -g lp -m0770 /var/spool/f11
 install -d -o f11print -g f11print -m0700 /var/lib/f11
 install -o root -g lp -m0660 /dev/null /run/lock/f11-print.lock
 install -o root -g root -m0644 "$ROOT/udev/70-rongta-f11.rules" /etc/udev/rules.d/70-rongta-f11.rules
-install -o root -g root -m0700 "$ROOT/cups/f11" /usr/lib/cups/backend/f11
+install -o root -g root -m0755 "$ROOT/cups/f11" /usr/lib/cups/backend/f11
 install -o root -g root -m0644 "$ROOT/cups/f11.ppd" /usr/share/ppd/f11.ppd
 install -o root -g root -m0644 "$ROOT/systemd/f11-health.service" /etc/systemd/system/f11-health.service
 printf 'blacklist usblp\n' >/etc/modprobe.d/f11-no-usblp.conf
@@ -40,15 +47,22 @@ udevadm trigger --subsystem-match=usb --attr-match=idVendor=0fe6 --attr-match=id
 if [[ $CONFIGURE_NFT -eq 1 ]]; then
   command -v nft >/dev/null || apt-get install -y --no-install-recommends nftables
   [[ -f /etc/nftables.conf ]] || { echo '/etc/nftables.conf does not exist; configure TCP 631 and UDP 5353 manually.' >&2; exit 1; }
+  NFT_TMP=$(mktemp /etc/nftables.conf.f11-new.XXXXXX)
+  python3 "$ROOT/scripts/allow-airprint-nftables.py" /etc/nftables.conf "$NFT_TMP"
+  chmod --reference=/etc/nftables.conf "$NFT_TMP"
+  chown --reference=/etc/nftables.conf "$NFT_TMP"
+  nft -c -f "$NFT_TMP"
   cp -a /etc/nftables.conf "/etc/nftables.conf.f11-backup.$(date +%Y%m%d%H%M%S)"
-  python3 "$ROOT/scripts/allow-airprint-nftables.py" /etc/nftables.conf
-  nft -c -f /etc/nftables.conf
+  mv -f "$NFT_TMP" /etc/nftables.conf
   nft -f /etc/nftables.conf
 fi
 systemctl daemon-reload
 systemctl enable --now cups avahi-daemon
 systemctl enable f11-health.service
-lpadmin -x Rongta_F11 2>/dev/null || true
+if lpstat -v Rongta_F11 >/dev/null 2>&1 && ! lpstat -v Rongta_F11 | grep -Fq 'f11:/'; then
+  echo 'Refusing to replace existing non-F11 queue Rongta_F11.' >&2
+  exit 1
+fi
 lpadmin -p Rongta_F11 -E -v f11:/ -P /usr/share/ppd/f11.ppd -D 'Rongta F11 Pi AirPrint' -L "$(hostname)" -o printer-is-shared=true
 lpadmin -d Rongta_F11
 cupsaccept Rongta_F11

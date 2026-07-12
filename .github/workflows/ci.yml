@@ -58,4 +58,9 @@ jobs:
         run: |
           bash -n cups/f11 scripts/install.sh Tests/backend-integration.sh
           shellcheck cups/f11 scripts/install.sh Tests/backend-integration.sh
+          python3 -m py_compile scripts/allow-airprint-nftables.py Tests/firewall-helper.py
+          python3 Tests/firewall-helper.py
+          grep -Fq 'm0755 "$ROOT/cups/f11" /usr/lib/cups/backend/f11' scripts/install.sh
+          test -z "$(grep -F '/tmp/f11d-install' scripts/install.sh || true)"
+          test -z "$(grep -F 'lpadmin -x Rongta_F11' scripts/install.sh || true)"
           ./Tests/backend-integration.sh

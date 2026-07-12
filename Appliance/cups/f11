@@ -9,7 +9,7 @@ if [[ $# -eq 0 ]]; then
   exit 0
 fi
 [[ -x "$F11D" ]] || { echo "ERROR: missing f11d: $F11D" >&2; exit 1; }
-install -d -m 0700 "$F11_SPOOL"
+[[ -d "$F11_SPOOL" && -w "$F11_SPOOL" ]] || { echo "ERROR: spool is not writable: $F11_SPOOL" >&2; exit 1; }
 [[ $# -ge 5 ]] || exit 1
 JOB=${1//[^0-9]/}
 COPIES=${4//[^0-9]/}
