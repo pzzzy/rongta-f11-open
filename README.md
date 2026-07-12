@@ -1,8 +1,8 @@
 # Rongta F11 Open Driver
 
-A clean-room, blob-free Swift implementation of the Rongta F11 print protocol for macOS.
+Clean-room, blob-free Rongta F11 printing for macOS and Linux/Raspberry Pi.
 
-This repository lets applications render PDFs or generate raster pages and send them directly to an F11 without installing or redistributing Rongta's proprietary driver, filter, PPD, DLLs, or Intel binaries.
+This repository lets applications render documents or generate raster pages and send them directly to an F11 without installing or redistributing Rongta's proprietary driver, filter, PPD, DLLs, or Intel binaries. The Linux appliance includes original clean-room CUPS metadata and a native Go protocol implementation.
 
 > Community interoperability project. Not affiliated with or endorsed by Rongta Technology. “Rongta” and “F11” may be trademarks of their respective owners.
 
@@ -54,7 +54,19 @@ brew install libusb openssl@3 pkg-config
 ./Scripts/install-airprint-bridge.sh
 ```
 
-See [Docs/AIRPRINT.md](Docs/AIRPRINT.md) for architecture, supported formats, verification, security, logs, and uninstall steps. See [THIRD_PARTY.md](THIRD_PARTY.md) for pinned dependency provenance and licenses.
+See [Docs/AIRPRINT.md](Docs/AIRPRINT.md) for the macOS bridge architecture, supported formats, verification, security, logs, and uninstall steps. See [THIRD_PARTY.md](THIRD_PARTY.md) for pinned dependency provenance and licenses.
+
+### Raspberry Pi appliance
+
+The Linux-native Go appliance turns a Raspberry Pi and USB-connected F11 into a persistent CUPS/AirPrint printer. It supports full native 1,664-dot output, continuous landscape banners, images, and repairable multi-page PDFs.
+
+```bash
+git clone https://github.com/pzzzy/rongta-f11-open.git
+cd rongta-f11-open/Appliance
+sudo ./scripts/install.sh
+```
+
+See [Appliance/README.md](Appliance/README.md) for installation, firewall setup, security limits, iPhone use, diagnostics, vehicle considerations, and integration tests.
 
 ## Build and test
 

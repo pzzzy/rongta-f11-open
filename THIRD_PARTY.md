@@ -24,6 +24,15 @@ The bridge also builds only the native arm64 slice on Apple Silicon because Home
 
 No upstream source or binary is copied into this Git repository.
 
+## Go image and text libraries
+
+The Raspberry Pi appliance uses these Go modules at build time:
+
+- `golang.org/x/image` v0.32.0 — Go Authors, BSD-3-Clause
+- `golang.org/x/text` v0.30.0 — Go Authors, BSD-3-Clause
+
+`x/image` supplies the embedded open Go Bold font and deterministic text rasterization used by the Linux banner generator. `x/text` is its transitive text-processing dependency. Module versions and checksums are pinned in `Appliance/go.mod` and `Appliance/go.sum`; no prebuilt Go binaries are committed.
+
 ## libusb
 
 - Project: libusb
