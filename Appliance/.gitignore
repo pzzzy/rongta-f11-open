@@ -1,0 +1,5 @@
+.DS_Store
+**/.DS_Store
+dist/
+*_arm64
+*_armv7

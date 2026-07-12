@@ -1,0 +1,25 @@
+[Unit]
+Description=Rongta F11 protocol and USB health check
+After=systemd-udev-settle.service cups.service
+
+[Service]
+Type=oneshot
+User=f11print
+Group=f11print
+SupplementaryGroups=lp
+ExecStart=/usr/local/lib/f11/f11d diagnose
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

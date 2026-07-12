@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  swift:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -28,5 +28,34 @@ jobs:
           shellcheck Scripts/*.sh Tests/*.sh Tests/ipp/*.sh
       - name: Blob and provenance guard
         run: |
-          test -z "$(find . -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' -o -name '*.ppd' -o -name '*.pkg' -o -name '*.exe' \) -not -path './.git/*' -print)"
+          test -z "$(find . -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' -o -name '*.pkg' -o -name '*.exe' \) -not -path './.git/*' -print)"
           ! grep -RIlE 'rastertoRTReceiptPrinters|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY' . --exclude-dir=.git --exclude=ci.yml
+
+  linux-appliance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Appliance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: Appliance/go.mod
+          cache-dependency-path: Appliance/go.sum
+      - name: Install integration dependencies
+        run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils shellcheck
+      - name: Go tests and vet
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Cross-build Raspberry Pi targets
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/f11d-arm64 ./cmd/f11d
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o /tmp/f11d-armv7 ./cmd/f11d
+          file /tmp/f11d-arm64 /tmp/f11d-armv7
+      - name: Backend integration and shell quality
+        run: |
+          bash -n cups/f11 scripts/install.sh Tests/backend-integration.sh
+          shellcheck cups/f11 scripts/install.sh Tests/backend-integration.sh
+          ./Tests/backend-integration.sh

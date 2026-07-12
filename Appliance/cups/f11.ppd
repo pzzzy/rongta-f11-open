@@ -1,0 +1,30 @@
+*PPD-Adobe: "4.3"
+*FormatVersion: "4.3"
+*FileVersion: "1.0"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName: "F11.PPD"
+*Manufacturer: "Rongta"
+*Product: "(F11 Open Driver)"
+*ModelName: "Rongta F11 Open Driver"
+*NickName: "Rongta F11 Open Driver"
+*ShortNickName: "Rongta F11"
+*PSVersion: "(3010.000) 0"
+*LanguageLevel: "3"
+*ColorDevice: False
+*DefaultColorSpace: Gray
+*FileSystem: False
+*Throughput: "1"
+*cupsFilter2: "application/pdf application/pdf 0 -"
+*DefaultPageSize: Letter
+*PageSize Letter/US Letter: "<</PageSize[612 792]>>setpagedevice"
+*DefaultPageRegion: Letter
+*PageRegion Letter/US Letter: "<</PageSize[612 792]>>setpagedevice"
+*DefaultImageableArea: Letter
+*ImageableArea Letter: "0 0 612 792"
+*DefaultPaperDimension: Letter
+*PaperDimension Letter: "612 792"
+*DefaultResolution: 203dpi
+*Resolution 203dpi/203 DPI: "<</HWResolution[203 203]>>setpagedevice"
+*DefaultFont: Courier
+*%EOF
