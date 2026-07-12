@@ -11,7 +11,7 @@ It was physically verified on a Raspberry Pi 4 running Debian 13 (`arm64`) with 
 - Proven 1,592-dot and full native 1,664-dot raster modes.
 - Full-width continuous landscape banners generated directly on Linux.
 - CUPS shared queue discoverable by native iOS AirPrint.
-- PDF, JPEG, PNG, PostScript, PWG Raster, and URF inputs normalized by CUPS to PDF.
+- iOS image jobs and PDFs physically verified; additional formats work only when the installed CUPS filter chain can normalize them to PDF.
 - Clean and recoverably malformed PDFs normalized with qpdf.
 - Multi-page PDFs up to 20 pages, processed and sent one page at a time.
 - Independent decode validation before every USB transmission.
@@ -49,7 +49,8 @@ The installer:
 - installs maintained Debian CUPS, Avahi, qpdf, Poppler, Ghostscript, and Go packages;
 - runs Go tests and vet before installation;
 - builds `f11d` locally for the Pi architecture;
-- creates the unprivileged `f11print` service account;
+- runs the network-facing CUPS backend as CUPS's unprivileged `lp` account;
+- creates the separate unprivileged `f11print` account for boot health diagnostics;
 - installs narrow udev permissions for `0fe6:811e`;
 - prevents `usblp` from claiming the interface used by direct usbfs;
 - installs the CUPS backend and clean-room PPD;
@@ -62,7 +63,7 @@ The installer does not alter an existing firewall by default. Permit trusted-LAN
 sudo ./scripts/install.sh --configure-nftables
 ```
 
-That option backs up `/etc/nftables.conf`, refuses unknown layouts, validates the resulting ruleset, and then loads it.
+That option writes to a root-only temporary file in `/etc`, refuses partial or unknown layouts, validates the complete ruleset, backs up the active file, atomically replaces it, and then loads it.
 
 ## iPhone use
 
@@ -115,6 +116,7 @@ Generate a continuous 15 x 8.2 inch landscape banner entirely on the Pi:
 - Temporary job directories are private and removed on every exit path.
 - qpdf exit 3 is accepted only when reconstruction creates a normalized PDF that subsequently passes a clean check.
 - Raw `.f11` files are not accepted over IPP.
+- The CUPS backend must remain mode `0755` so CUPS runs it as the unprivileged `lp` account; mode `0700` would deliberately trigger root execution.
 - The printer has no proven physical completion acknowledgement. A successful bulk transfer proves host-side transmission only.
 - Keep this trusted-LAN only; do not expose CUPS port 631 to the public Internet.
 
