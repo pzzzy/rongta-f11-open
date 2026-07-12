@@ -3,3 +3,4 @@
 dist/
 *_arm64
 *_armv7
+!testdata/swift-selftest.f11
