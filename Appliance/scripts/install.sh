@@ -62,6 +62,7 @@ install -o root -g root -m0755 "$ROOT/scripts/f11-health.sh" /usr/local/lib/f11/
 install -o root -g root -m0755 "$ROOT/scripts/plan-queue-migration.py" /usr/local/lib/f11/plan-queue-migration
 install -o root -g root -m0755 "$ROOT/scripts/check-f11-runtime.py" /usr/local/lib/f11/check-f11-runtime
 install -o root -g root -m0755 "$ROOT/scripts/pdf-page-height.py" /usr/local/lib/f11/pdf-page-height
+install -o root -g root -m0755 "$ROOT/scripts/media-canvas.py" /usr/local/lib/f11/media-canvas
 install -d -o lp -g lp -m0700 /var/spool/f11
 install -d -o f11print -g f11print -m0700 /var/lib/f11
 install -o root -g root -m0755 "$ROOT/cups/pdftof11" /usr/lib/cups/filter/pdftof11

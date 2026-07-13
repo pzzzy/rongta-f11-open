@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 import pathlib
+import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-if len(sys.argv) != 3:
-    raise SystemExit("usage: check-f11-runtime.py QUEUE_LINE SYSFS_ROOT")
-prefix = "device for Rongta_F11: "
-if not sys.argv[1].startswith(prefix):
+if len(sys.argv) != 4:
+    raise SystemExit("usage: check-f11-runtime.py QUEUE QUEUE_LINE SYSFS_ROOT")
+queue = sys.argv[1]
+if not re.fullmatch(r"Rongta_F11(?:_[A-Za-z0-9]+)*", queue):
+    raise SystemExit("unexpected queue name")
+prefix = f"device for {queue}: "
+if not sys.argv[2].startswith(prefix):
     raise SystemExit("unexpected queue identity")
-uri = sys.argv[1][len(prefix):]
+uri = sys.argv[2][len(prefix):]
 parsed = urlsplit(uri)
 if parsed.scheme != "usb" or parsed.path.rstrip("/").split("/")[-1].upper() != "F11":
     raise SystemExit("queue is not an F11 USB URI")
@@ -17,7 +21,7 @@ if len(serials) > 1 or (serials and not serials[0]):
     raise SystemExit("invalid queue serial")
 expected_serial = serials[0] if serials else None
 matches = []
-for device in pathlib.Path(sys.argv[2]).glob("*"):
+for device in pathlib.Path(sys.argv[3]).glob("*"):
     try:
         vid = (device / "idVendor").read_text().strip().lower()
         pid = (device / "idProduct").read_text().strip().lower()

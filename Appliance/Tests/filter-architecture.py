@@ -9,12 +9,19 @@ quirk = root / "cups/0fe6-811e.usb-quirks"
 
 assert filter_path.exists(), "missing stdout-only CUPS filter"
 assert (root / "scripts/pdf-page-height.py").exists(), "missing page geometry helper"
+assert (root / "scripts/media-canvas.py").exists(), "missing media canvas helper"
 text = filter_path.read_text()
 assert 'PAGE_HEIGHT=${PAGE_HEIGHT:-/usr/local/lib/f11/pdf-page-height}' in text
 assert 'pdf-page-height.py" /usr/local/lib/f11/pdf-page-height' in installer
+assert 'MEDIA_CANVAS=${MEDIA_CANVAS:-/usr/local/lib/f11/media-canvas}' in text
+assert 'media-canvas.py" /usr/local/lib/f11/media-canvas' in installer
 assert "f11d send" not in text and '"$F11D" send' not in text
 assert "F11_OUTPUT_DIR" in text, "filter needs testable pre-emission staging"
 assert "validate" in text
+assert 'timeout --kill-after=10s 120s gs -q -dSAFER -dBATCH -dNOPAUSE' in text
+assert '-dFirstPage="$page" -dLastPage="$page"' in text
+assert '-sDEVICE=pgmraw -r203' in text
+assert 'pdftoppm' not in text
 assert "cat" in text
 assert '*cupsFilter: "application/pdf 0 pdftof11"' in ppd
 assert '-v f11:/' not in installer and '-v "f11:/"' not in installer
@@ -34,7 +41,9 @@ assert "self-test" in health_text
 assert "lpinfo -v" not in health_text
 assert "/usr/lib/cups/backend/usb" not in health_text
 assert "check-f11-runtime" in health_text
-assert "lpstat -v Rongta_F11" in health_text
+assert 'F11_QUEUE=${F11_QUEUE:-Rongta_F11}' in health_text
+assert 'lpstat -v "$F11_QUEUE"' in health_text
+assert 'check-f11-runtime "$F11_QUEUE" "$QUEUE"' in health_text
 assert "send" not in health_text
 service = (root / "systemd/f11-health.service").read_text()
 assert "ExecStart=/usr/local/lib/f11/f11-health" in service

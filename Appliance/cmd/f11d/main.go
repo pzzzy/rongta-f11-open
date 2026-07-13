@@ -103,11 +103,15 @@ func main() {
 		sum := sha256.Sum256(stream)
 		emit(result{OK: true, Command: "banner", Detail: map[string]any{"output": filepath.Base(args[1]), "lines": layout.Lines, "font_size": layout.FontSize, "bytes": len(stream), "sha256": hex.EncodeToString(sum[:])}}, 0)
 	case "compose-pgm":
-		if len(args) != 4 {
-			emit(result{Error: "compose-pgm input.pgm output.pgm canvas-height"}, 2)
+		if len(args) != 5 {
+			emit(result{Error: "compose-pgm input.pgm output.pgm canvas-width canvas-height"}, 2)
 		}
-		canvasHeight, e := strconv.Atoi(args[3])
-		if e != nil || canvasHeight < 20 || canvasHeight > 2842 {
+		canvasWidth, e := strconv.Atoi(args[3])
+		if e != nil || canvasWidth < 1 || canvasWidth > 1664 {
+			emit(result{Error: "invalid canvas width"}, 1)
+		}
+		canvasHeight, e := strconv.Atoi(args[4])
+		if e != nil || canvasHeight < 20 || canvasHeight > 2233 {
 			emit(result{Error: "invalid canvas height"}, 1)
 		}
 		data, e := os.ReadFile(args[1])
@@ -117,7 +121,7 @@ func main() {
 		img, e := render.ParsePGMRange(data, 1, 4096, 1, 4096)
 		var gray []byte
 		if e == nil {
-			gray, e = render.FitGrayCanvas(img.Gray, img.Width, img.Height, 1664, canvasHeight)
+			gray, e = render.FitGrayHeadCanvas(img.Gray, img.Width, img.Height, canvasWidth, canvasHeight, 1664)
 		}
 		if e == nil {
 			header := []byte(fmt.Sprintf("P5\n1664 %d\n255\n", canvasHeight))

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-for cmd in go qpdf pdftoppm; do
+for cmd in go qpdf gs; do
   if ! command -v "$cmd" >/dev/null; then
     [[ ${F11_ALLOW_TEST_SKIP:-0} == 1 ]] && { echo "SKIP: missing $cmd"; exit 0; }
     echo "ERROR: missing integration dependency: $cmd" >&2
@@ -43,8 +43,35 @@ for off in offsets[1:]: out+=f'{off:010d} 00000 n \n'.encode()
 out+=f'trailer << /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode(); Path(sys.argv[1]).write_bytes(out)
 PY
 qpdf --check "$TMP/short.pdf" >/dev/null
+python3 - "$TMP/portrait.pdf" <<'PY'
+from pathlib import Path
+import sys
+s=b"0 0 0 rg 20 20 248 392 re S"
+objs=[b'<< /Type /Catalog /Pages 2 0 R >>',b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 288 432] /Contents 4 0 R >>',f'<< /Length {len(s)} >>\nstream\n'.encode()+s+b'\nendstream']
+out=bytearray(b'%PDF-1.4\n'); offsets=[0]
+for i,obj in enumerate(objs,1): offsets.append(len(out)); out+=f'{i} 0 obj\n'.encode()+obj+b'\nendobj\n'
+xref=len(out); out+=b'xref\n0 5\n0000000000 65535 f \n'
+for off in offsets[1:]: out+=f'{off:010d} 00000 n \n'.encode()
+out+=f'trailer << /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode(); Path(sys.argv[1]).write_bytes(out)
+PY
+qpdf --check "$TMP/portrait.pdf" >/dev/null
+[[ $("$ROOT/scripts/pdf-page-height.py" --dimensions "$TMP/portrait.pdf" 1) == '812 1218' ]]
+[[ $("$ROOT/scripts/pdf-page-height.py" "$TMP/portrait.pdf" 1) == '1218' ]]
+python3 - "$TMP/portrait.pdf" "$TMP/rotated.pdf" <<'PY'
+from pathlib import Path
+import sys
+b=Path(sys.argv[1]).read_bytes()
+old=b'/MediaBox [0 0 288 432] /Contents'
+new=b'/MediaBox [0 0 288 432] /Rotate 90 /Contents'
+assert b.count(old)==1
+# Rebuild with qpdf after this length-changing, deliberately invalid-xref edit.
+Path(sys.argv[2]).write_bytes(b.replace(old,new))
+PY
+qpdf --warning-exit-0 "$TMP/rotated.pdf" "$TMP/rotated-fixed.pdf"
+qpdf --check "$TMP/rotated-fixed.pdf" >/dev/null
+[[ $("$ROOT/scripts/pdf-page-height.py" --dimensions "$TMP/rotated-fixed.pdf" 1) == '1218 812' ]]
 mkdir "$TMP/spool"
-F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" \
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
   "$ROOT/cups/pdftof11" 99 tester clean 2 '' "$TMP/clean.pdf" >"$TMP/output.f11" 2>"$TMP/filter.log"
 python3 - "$TMP/output.f11" "$TMP/jobs" <<'PY'
 from pathlib import Path
@@ -71,10 +98,81 @@ h=[hashlib.sha256(p.read_bytes()).hexdigest() for p in jobs]
 assert len(h)==6 and h[:3]==h[3:] and len(set(h[:3]))==3, h
 PY
 [[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
-F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" \
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
   "$ROOT/cups/pdftof11" 100 tester short 1 '' "$TMP/short.pdf" >"$TMP/short.f11" 2>"$TMP/short.log"
 "$TMP/f11d-real" validate "$TMP/short.f11" | grep -Fq '"rows":256'
 [[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
+# Landscape input rotates only media whose long edge still fits the 1,664-dot head.
+for spec in '4x6.Fullbleed:812' '5x7.Fullbleed:1015' 'A5.Fullbleed:1678' '8x10.Fullbleed:2030' 'Letter.Fullbleed:2233'; do
+  media=${spec%%:*}; rows=${spec##*:}
+  F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+    "$ROOT/cups/pdftof11" 101 tester media 1 "PageSize=$media" "$TMP/short.pdf" >"$TMP/media-$rows.f11" 2>"$TMP/media-$rows.log"
+  "$TMP/f11d-real" validate "$TMP/media-$rows.f11" | grep -Fq "\"rows\":$rows"
+done
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+  "$ROOT/cups/pdftof11" 101 tester portrait 1 'PageSize=4x6.Fullbleed' "$TMP/portrait.pdf" >"$TMP/portrait.f11" 2>"$TMP/portrait.log"
+"$TMP/f11d-real" validate "$TMP/portrait.f11" | grep -Fq '"rows":1218'
+set +e
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+  "$ROOT/cups/pdftof11" 102 tester bad-media 1 'PageSize=A4' "$TMP/short.pdf" >"$TMP/bad-media-output" 2>"$TMP/bad-media.log"
+bad_media_rc=$?
+set -e
+[[ $bad_media_rc -ne 0 && ! -s "$TMP/bad-media-output" ]]
+# Media helper output is untrusted: plausible output plus failure, trailing fields,
+# oversized dimensions, or nonnumeric dimensions must all fail before stdout.
+for case in nonzero extra multiline doublespace leading trailing wide overflow text; do
+  helper="$TMP/media-$case"
+  case $case in
+    nonzero) printf '#!/bin/sh\nprintf "812 1218\\n"\nexit 42\n' >"$helper" ;;
+    extra) printf '#!/bin/sh\nprintf "812 1218 extra\\n"\n' >"$helper" ;;
+    multiline) printf '#!/bin/sh\nprintf "812 1218\\nEXTRA\\n"\n' >"$helper" ;;
+    doublespace) printf '#!/bin/sh\nprintf "812  1218\\n"\n' >"$helper" ;;
+    leading) printf '#!/bin/sh\nprintf " 812 1218\\n"\n' >"$helper" ;;
+    trailing) printf '#!/bin/sh\nprintf "812 1218 \\n"\n' >"$helper" ;;
+    wide) printf '#!/bin/sh\nprintf "1665 1218\\n"\n' >"$helper" ;;
+    overflow) printf '#!/bin/sh\nprintf "18446744073709551617 1218\\n"\n' >"$helper" ;;
+    text) printf '#!/bin/sh\nprintf "812 nope\\n"\n' >"$helper" ;;
+  esac
+  chmod 0755 "$helper"
+  set +e
+  F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$helper" \
+    "$ROOT/cups/pdftof11" 103 tester "bad-$case" 1 'PageSize=4x6.Fullbleed' "$TMP/short.pdf" >"$TMP/bad-$case-output" 2>"$TMP/bad-$case.log"
+  helper_rc=$?
+  set -e
+  [[ $helper_rc -ne 0 && ! -s "$TMP/bad-$case-output" ]]
+done
+[[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
+# Page geometry helper output is also untrusted and must fail before stdout.
+for case in nonzero extra multiline overflow text; do
+  helper="$TMP/page-$case"
+  case $case in
+    nonzero) printf '#!/bin/sh\nprintf "1218 812\\n"\nexit 42\n' >"$helper" ;;
+    extra) printf '#!/bin/sh\nprintf "1218 812 extra\\n"\n' >"$helper" ;;
+    multiline) printf '#!/bin/sh\nprintf "1218 812\\nEXTRA\\n"\n' >"$helper" ;;
+    overflow) printf '#!/bin/sh\nprintf "18446744073709551617 812\\n"\n' >"$helper" ;;
+    text) printf '#!/bin/sh\nprintf "wide 812\\n"\n' >"$helper" ;;
+  esac
+  chmod 0755 "$helper"
+  set +e
+  F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$helper" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+    "$ROOT/cups/pdftof11" 104 tester "bad-page-$case" 1 'PageSize=4x6.Fullbleed' "$TMP/short.pdf" >"$TMP/bad-page-$case-output" 2>"$TMP/bad-page-$case.log"
+  page_rc=$?
+  set -e
+  [[ $page_rc -ne 0 && ! -s "$TMP/bad-page-$case-output" ]]
+done
+set +e
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+  "$ROOT/cups/pdftof11" 105 tester bad-copies 18446744073709551617 'PageSize=4x6.Fullbleed' "$TMP/short.pdf" >"$TMP/bad-copies-output" 2>"$TMP/bad-copies.log"
+copies_rc=$?
+set -e
+[[ $copies_rc -ne 0 && ! -s "$TMP/bad-copies-output" ]]
+[[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
+# GNU timeout must force-kill a renderer that ignores SIGTERM.
+set +e
+timeout --kill-after=1s 1s sh -c 'trap "" TERM; while :; do sleep 1; done' >/dev/null 2>&1
+kill_rc=$?
+set -e
+[[ $kill_rc -eq 137 ]]
 # A filter must not emit any bytes until every page has encoded and validated.
 cat >"$TMP/f11d-fail" <<EOF
 #!/bin/bash
@@ -83,7 +181,7 @@ exec "$TMP/f11d-real" "\$@"
 EOF
 chmod +x "$TMP/f11d-fail"
 set +e
-F11D="$TMP/f11d-fail" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" \
+F11D="$TMP/f11d-fail" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
   "$ROOT/cups/pdftof11" 100 tester fail 1 '' "$TMP/clean.pdf" >"$TMP/failure-output" 2>"$TMP/failure.log"
 rc=$?
 set -e

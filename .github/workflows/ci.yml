@@ -44,7 +44,7 @@ jobs:
           go-version-file: Appliance/go.mod
           cache-dependency-path: Appliance/go.sum
       - name: Install integration dependencies
-        run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils shellcheck
+        run: sudo apt-get update && sudo apt-get install -y ghostscript qpdf poppler-utils shellcheck
       - name: Go tests and vet
         run: |
           go test ./...
