@@ -9,13 +9,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/banner"
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/protocol"
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/render"
-	"github.com/pzzzy/rongta-f11-open/appliance/internal/usb"
 )
+
+const maxStreamBytes = 64 << 20
 
 type result struct {
 	OK      bool   `json:"ok"`
@@ -50,7 +52,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		emit(result{Error: "usage: f11d self-test|probe|banner|encode-pgm|validate|send|diagnose"}, 2)
+		emit(result{Error: "usage: f11d self-test|banner|encode-pgm|validate"}, 2)
 	}
 	switch args[0] {
 	case "self-test":
@@ -59,13 +61,7 @@ func main() {
 			emit(r, 1)
 		}
 		emit(r, 0)
-	case "probe":
-		b := usb.NewUSBFS()
-		d, e := usb.Probe(b)
-		if e != nil {
-			emit(result{Command: "probe", Error: e.Error()}, 1)
-		}
-		emit(result{OK: true, Command: "probe", Detail: d}, 0)
+
 	case "banner":
 		if len(args) < 3 {
 			emit(result{Error: "banner output.f11 TEXT..."}, 2)
@@ -106,6 +102,31 @@ func main() {
 		}
 		sum := sha256.Sum256(stream)
 		emit(result{OK: true, Command: "banner", Detail: map[string]any{"output": filepath.Base(args[1]), "lines": layout.Lines, "font_size": layout.FontSize, "bytes": len(stream), "sha256": hex.EncodeToString(sum[:])}}, 0)
+	case "compose-pgm":
+		if len(args) != 4 {
+			emit(result{Error: "compose-pgm input.pgm output.pgm canvas-height"}, 2)
+		}
+		canvasHeight, e := strconv.Atoi(args[3])
+		if e != nil || canvasHeight < 20 || canvasHeight > 2842 {
+			emit(result{Error: "invalid canvas height"}, 1)
+		}
+		data, e := os.ReadFile(args[1])
+		if e != nil || len(data) > 32<<20 {
+			emit(result{Error: "invalid PGM input"}, 1)
+		}
+		img, e := render.ParsePGMRange(data, 1, 4096, 1, 4096)
+		var gray []byte
+		if e == nil {
+			gray, e = render.FitGrayCanvas(img.Gray, img.Width, img.Height, 1664, canvasHeight)
+		}
+		if e == nil {
+			header := []byte(fmt.Sprintf("P5\n1664 %d\n255\n", canvasHeight))
+			e = os.WriteFile(args[2], append(header, gray...), 0600)
+		}
+		if e != nil {
+			emit(result{Error: e.Error()}, 1)
+		}
+		emit(result{OK: true, Command: "compose-pgm", Detail: map[string]any{"width": 1664, "height": canvasHeight}}, 0)
 	case "encode-pgm":
 		if len(args) != 3 {
 			emit(result{Error: "encode-pgm input.pgm output.f11"}, 2)
@@ -114,16 +135,29 @@ func main() {
 		if e != nil {
 			emit(result{Error: e.Error()}, 1)
 		}
-		img, e := render.ParsePGM(data, 1664, 2233)
+		img, e := render.ParsePGMRange(data, 1, 1664, 1, 2233)
 		if e != nil {
 			emit(result{Error: e.Error()}, 1)
 		}
-		stream, e := protocol.EncodeNativeJob(img.Gray, img.Width, img.Height, protocol.Settings{Speed: 12, Density: 9, Copies: 1})
+		gray, e := render.CenterPadGray(img.Gray, img.Width, img.Height, 1664)
+		if e != nil {
+			emit(result{Error: e.Error()}, 1)
+		}
+		stream, e := protocol.EncodeNativeJob(gray, 1664, img.Height, protocol.Settings{Speed: 12, Density: 9, Copies: 1})
 		if e == nil {
 			decoded, decodeErr := protocol.DecodeJob(stream)
 			e = decodeErr
 			if e == nil && (decoded.WidthBytes != 208 || decoded.Height != img.Height) {
 				e = fmt.Errorf("decoded geometry mismatch")
+			}
+			intended, intendedErr := protocol.NativeMonochrome(gray, 1664, img.Height)
+			if e == nil {
+				e = intendedErr
+			}
+			for i := 0; e == nil && i < len(intended); i++ {
+				if !bytes.Equal(decoded.Rows[i], intended[i]) {
+					e = fmt.Errorf("decoded raster mismatch at row %d", i+1)
+				}
 			}
 		}
 		if e == nil {
@@ -138,7 +172,7 @@ func main() {
 			emit(result{Error: "validate stream.f11"}, 2)
 		}
 		info, e := os.Stat(args[1])
-		if e != nil || info.Size() <= 0 || info.Size() > usb.MaxStreamBytes {
+		if e != nil || info.Size() <= 0 || info.Size() > maxStreamBytes {
 			emit(result{Error: "invalid stream file size"}, 1)
 		}
 		stream, e := os.ReadFile(args[1])
@@ -151,38 +185,7 @@ func main() {
 		}
 		sum := sha256.Sum256(stream)
 		emit(result{OK: true, Command: "validate", Detail: map[string]any{"bytes": len(stream), "rows": decoded.Height, "width_bytes": decoded.WidthBytes, "sha256": hex.EncodeToString(sum[:])}}, 0)
-	case "send":
-		if len(args) != 2 {
-			emit(result{Error: "send validated.f11"}, 2)
-		}
-		info, e := os.Stat(args[1])
-		if e != nil || info.Size() <= 0 || info.Size() > usb.MaxStreamBytes {
-			emit(result{Error: "invalid stream file size"}, 1)
-		}
-		stream, e := os.ReadFile(args[1])
-		if e == nil {
-			_, e = protocol.DecodeJob(stream)
-		}
-		if e != nil {
-			emit(result{Error: "stream validation: " + e.Error()}, 1)
-		}
-		if e = usb.Send(usb.NewUSBFS(), stream, 2048); e != nil {
-			emit(result{Error: e.Error()}, 1)
-		}
-		emit(result{OK: true, Command: "send", Detail: map[string]any{"bytes": len(stream)}}, 0)
-	case "diagnose":
-		r := selfTest()
-		checks := map[string]any{"protocol": r.Detail}
-		b := usb.NewUSBFS()
-		d, e := usb.Probe(b)
-		usbOK := e == nil
-		if !usbOK {
-			checks["usb"] = map[string]any{"ok": false, "error": e.Error()}
-		} else {
-			checks["usb"] = map[string]any{"ok": true, "device": d}
-		}
-		overall := r.OK && usbOK
-		emit(result{OK: overall, Command: "diagnose", Detail: checks}, map[bool]int{true: 0, false: 1}[overall])
+
 	default:
 		emit(result{Error: "unknown command"}, 2)
 	}

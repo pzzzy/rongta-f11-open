@@ -1,42 +1,29 @@
 # Raspberry Pi AirPrint appliance
 
-This directory contains the Linux-native Rongta F11 driver and a Raspberry Pi CUPS/AirPrint appliance.
-
-It was physically verified on a Raspberry Pi 4 running Debian 13 (`arm64`) with an F11 at USB `0fe6:811e`. The protocol core also cross-builds for Raspberry Pi OS `armhf`/ARMv7.
-
-## What works
-
-- Native Go implementation of F11 framing, seeded CRC-32, deterministic Huffman coding, raster encoding, strict decoding, and direct Linux usbfs transport.
-- Exact Swift/Go protocol fixture identity.
-- Proven 1,592-dot and full native 1,664-dot raster modes.
-- Full-width continuous landscape banners generated directly on Linux.
-- CUPS shared queue discoverable by native iOS AirPrint.
-- iOS image jobs and PDFs physically verified; additional formats work only when the installed CUPS filter chain can normalize them to PDF.
-- Clean and recoverably malformed PDFs normalized with qpdf.
-- Multi-page PDFs up to 20 pages, processed and sent one page at a time.
-- Independent decode validation before every USB transmission.
-- Serialized jobs, bounded input, per-command timeouts, private temporary directories, and automatic cleanup.
+Linux-native clean-room Rongta F11 support for Raspberry Pi CUPS/AirPrint. Physically developed on Raspberry Pi 4, Debian 13 arm64, USB `0fe6:811e`; the protocol core also cross-builds for ARMv7.
 
 ## Architecture
 
 ```text
 iPhone/macOS
-  -> Bonjour + IPP/IPPS (CUPS)
+  -> Bonjour + IPP/IPPS
   -> CUPS document normalization
-  -> custom f11:/ backend
-  -> qpdf repair and validation
-  -> Poppler 203-dpi grayscale raster
-  -> native Go F11 encoder
-  -> strict independent decoder
-  -> serialized usbfs bulk transport
+  -> unprivileged pdftof11 filter
+  -> qpdf validation + Poppler 203-dpi grayscale raster
+  -> clean-room Go F11 encoder
+  -> strict independent decode/row comparison
+  -> complete validated RTProtocol job on stdout
+  -> standard CUPS usb backend (libusb, unidir, delay-close)
   -> Rongta F11
 ```
 
-Documents never directly control raw USB output. Only streams accepted by the strict F11 grammar are transmitted.
+The filter never opens USB. CUPS owns discovery, serialization, USB interface detach/reattach, synchronous bulk transfers, and job lifetime. A narrow local CUPS quirk for `0fe6:811e` enables `unidir delay-close`, preventing the final transfer from being lost during interface release.
+
+## Clean-room boundary
+
+The encoder, decoder, renderer, filter, validation, and installer are independently authored. Protocol interoperability research used observed official-driver output and controlled differential fixtures as documented in `../Docs/PROVENANCE.md`; those captures are not distributed. Later static package inspection corroborated the filter-to-stdout/CUPS-backend architecture and declarative printer properties. No proprietary binary, PPD, disassembly, or copied vendor source is included or required at runtime.
 
 ## Install
-
-Start with a current 32- or 64-bit Raspberry Pi OS/Debian installation and network connectivity:
 
 ```bash
 git clone https://github.com/pzzzy/rongta-f11-open.git
@@ -47,45 +34,33 @@ sudo ./scripts/install.sh
 The installer:
 
 - installs maintained Debian CUPS, Avahi, qpdf, Poppler, Ghostscript, and Go packages;
-- runs Go tests and vet before installation;
-- builds `f11d` locally for the Pi architecture;
-- runs the network-facing CUPS backend as CUPS's unprivileged `lp` account;
-- creates the separate unprivileged `f11print` account for boot health diagnostics;
-- installs narrow udev permissions for `0fe6:811e`;
-- prevents `usblp` from claiming the interface used by direct usbfs;
-- installs the CUPS backend and clean-room PPD;
-- creates and shares `Rongta_F11`;
-- enables a fail-closed boot-time protocol/USB health check (installation still succeeds if the printer is temporarily disconnected).
+- runs tests and vet, then builds `f11d` locally;
+- installs the unprivileged PDF-to-F11 stdout filter and clean-room PPD;
+- discovers exactly one F11 using `/usr/lib/cups/backend/usb` and pins its discovered URI, including serial when supplied by CUPS;
+- refuses ambiguous hardware or an unrelated existing `Rongta_F11` queue;
+- places a nonprinting migration-hold backend before starting CUPS, disables the legacy queue, cancels outstanding legacy jobs through CUPS, updates the queue in place, then removes the hold and enables printing;
+- installs the narrow `0x0fe6 0x811e unidir delay-close` CUPS USB quirk;
+- removes obsolete `usblp` blacklists while leaving kernel-driver detach/reattach to CUPS;
+- installs a nonprinting health check and shares `Rongta_F11` over AirPrint.
 
-The installer does not alter an existing firewall by default. Permit trusted-LAN TCP 631 and UDP 5353 manually, or use the narrow known-layout helper:
+Firewall changes are opt-in:
 
 ```bash
 sudo ./scripts/install.sh --configure-nftables
 ```
 
-That option writes to a root-only temporary file in `/etc`, refuses partial or unknown layouts, validates the complete ruleset, backs up the active file, atomically replaces it, and then loads it.
-
-## iPhone use
-
-1. Connect the iPhone and Pi to the same trusted LAN.
-2. Open an image or PDF and select **Share -> Print**.
-3. Choose **Rongta F11 Pi AirPrint @ <hostname>**.
-4. Submit one copy initially and confirm physical output.
-
-If an older Mac bridge advertised the same name, stop it or rename one service. Colliding Bonjour names can cause iOS to query the wrong host.
-
-## Diagnostics
+## Diagnostics (never print)
 
 ```bash
 /usr/local/lib/f11/f11d self-test
-/usr/local/lib/f11/f11d probe
-sudo -u f11print /usr/local/lib/f11/f11d diagnose
+/usr/local/lib/f11/f11-health
+/usr/lib/cups/backend/usb
 lpstat -t
 ipptool -t ipp://localhost/printers/Rongta_F11 \
   /usr/share/cups/ipptool/get-printer-attributes.test
 ```
 
-Expected deterministic self-test:
+Expected protocol self-test:
 
 ```text
 bytes:  913
@@ -93,92 +68,74 @@ rows:   8
 sha256: bffe45513da30e7fc29b4e404154cb65a87637a1df1951929fa49f248f4627f4
 ```
 
-## Native banner generation
-
-Generate a continuous 15 x 8.2 inch landscape banner entirely on the Pi:
-
-```bash
-/usr/local/lib/f11/f11d banner /tmp/banner.f11 \
-  "PLEASE DON'T PARK YOUR TRAILER HERE"
-/usr/local/lib/f11/f11d validate /tmp/banner.f11
-/usr/local/lib/f11/f11d send /tmp/banner.f11
-```
-
-`banner` chooses a semantic two-line break, fits an embedded open Go Bold font, rotates into feed orientation, and verifies all decoded rows before writing the stream.
+Standalone raw USB sending is intentionally not installed. CUPS is the sole production writer.
 
 ## Limits and safety
 
-- Input PDF: 64 MiB maximum after CUPS normalization.
-- Pages: 1-20.
-- Raster: 1,664 x 2,233, 203 dpi grayscale per ordinary page.
-- Copies: the CUPS backend expands the requested count (1-255); each encoded page uses one protocol copy.
-- One backend job holds `/run/lock/f11-print.lock` at a time.
-- Temporary job directories are private and removed on every exit path.
-- qpdf exit 3 is accepted only when reconstruction creates a normalized PDF that subsequently passes a clean check.
+- Normalized PDF: at most 64 MiB.
+- Pages: 1–20.
+- Raster: native width 1,664 dots; page height is preserved at 203 dpi and bounded to 20–2,233 rows.
+- Media presets currently validated: F11 Short (32 mm, default) and borderless US Letter.
+- Rendering uses uniform aspect-preserving fit with centered white padding; iOS decides which generic scaling controls each source app exposes. Additional named sizes and fill/crop behavior are intentionally not advertised until independently tested.
+- Copies: expanded by the filter only; each encoded protocol job has one copy.
+- Every page/copy is staged and fully validated before the first byte reaches filter stdout. A later-page failure emits no partial printer stream.
+- Temporary directories are private and removed on all normal/error exits.
+- qpdf status 3 is accepted only if the reconstructed PDF subsequently passes a clean check.
 - Raw `.f11` files are not accepted over IPP.
-- The CUPS backend must remain mode `0755` so CUPS runs it as the unprivileged `lp` account; mode `0700` would deliberately trigger root execution.
-- The printer has no proven physical completion acknowledgement. A successful bulk transfer proves host-side transmission only.
-- Keep this trusted-LAN only; do not expose CUPS port 631 to the public Internet.
+- A successful USB transfer means transport completion, not proven mechanical completion/ejection; the F11 has no established per-job acknowledgement.
+- Blank raster rows are not treated as a proven paper-feed command.
+- Keep CUPS on a trusted LAN; never expose TCP 631 to the public Internet.
+- Physical regression patterns should use only 10–30 mm of low-coverage paper and include a distinct final marker.
 
 ## Troubleshooting
 
-### iOS discovers the printer but cannot select it
-
-Check that the Pi firewall allows trusted-LAN TCP 631 and UDP 5353. Then test from another LAN host:
+### USB discovery
 
 ```bash
+sudo /usr/lib/cups/backend/usb
+lsusb -t
+sudo tail -100 /var/log/cups/error_log
+```
+
+The backend should report exactly one F11 `usb:` URI. CUPS may detach and reattach `usblp` while owning a print job; this is normal.
+
+### Queue and AirPrint
+
+```bash
+lpstat -W all -o Rongta_F11
+lpstat -v Rongta_F11
+dns-sd -B _ipp._tcp local.
 ipptool -t ipp://PI_ADDRESS/printers/Rongta_F11 \
   /usr/share/cups/ipptool/get-printer-attributes.test
 ```
 
-Also inspect duplicate Bonjour advertisements:
+### Offline filter validation
+
+The integration test captures filter stdout to a file and never invokes USB:
 
 ```bash
-dns-sd -B _ipp._tcp local.
+cd Appliance
+./Tests/filter-integration.sh
 ```
 
-### `claim interface: device or resource busy`
+It generates a three-page PDF with two copies, splits six concatenated RTProtocol jobs, strictly validates each one, forces a page-three failure, proves that failure emits zero bytes, and verifies cleanup.
 
-`usblp` probably claimed interface 0:
-
-```bash
-lsusb -t
-sudo modprobe -r usblp
-```
-
-The installer writes `/etc/modprobe.d/f11-no-usblp.conf` so this remains fixed after reboot.
-
-### CUPS backend failed
-
-```bash
-lpstat -W all -o Rongta_F11
-sudo tail -100 /var/log/cups/error_log
-sudo tail -100 /var/log/cups/access_log
-```
-
-Preserved CUPS files can be replayed without USB:
-
-```bash
-sudo F11_DRY_RUN=1 DEVICE_URI=f11:/ /usr/lib/cups/backend/f11 \
-  900 tester replay 1 '' /var/spool/cups/dNNNNN-001
-```
-
-### Recoverable PDF warning
-
-Some iOS PDFs contain damaged xref entries such as `object has offset 0`. The backend reconstructs these with qpdf and requires the result to pass a clean second check before rendering.
-
-## Development and tests
+## Development
 
 ```bash
 cd Appliance
 go test ./...
+go test -race ./...
 go vet ./...
-bash -n cups/f11 scripts/install.sh Tests/backend-integration.sh
-shellcheck cups/f11 scripts/install.sh Tests/backend-integration.sh
-./Tests/backend-integration.sh
+python3 Tests/filter-architecture.py
+python3 Tests/queue-migration.py
+python3 Tests/firewall-helper.py
+bash -n cups/pdftof11 cups/f11-migration-hold scripts/f11-health.sh \
+  scripts/install.sh Tests/filter-integration.sh
+shellcheck cups/pdftof11 cups/f11-migration-hold scripts/f11-health.sh \
+  scripts/install.sh Tests/filter-integration.sh
+./Tests/filter-integration.sh
 ```
-
-The integration test requires qpdf and Poppler. It generates clean and repairable five-page PDFs, requires five independently validated F11 streams for each, disables USB, and verifies temporary cleanup.
 
 Cross-builds:
 
@@ -187,12 +144,8 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/f11d-arm64 ./cm
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o /tmp/f11d-armv7 ./cmd/f11d
 ```
 
-`testdata/swift-selftest.f11` is generated by the clean-room Swift encoder and is the language-crossing golden fixture.
+`testdata/swift-selftest.f11` is the clean-room Swift/Go golden fixture.
 
-## Dependencies and licensing
+## Licensing
 
-The appliance source is MIT-licensed with the repository. It uses `golang.org/x/image` and its transitive `golang.org/x/text` dependency under their upstream BSD-style licenses. Runtime document tools are installed from Debian repositories; no proprietary Rongta driver, filter, PPD, binary, or captured customer document is included.
-
-## Vehicle use
-
-Use automotive-grade regulated power and graceful shutdown/hold-up hardware. Abrupt SD-card power loss and high cabin temperatures can damage state or thermal media. The current installer does not configure a read-only root filesystem, access point, ignition sensing, or shutdown controller.
+MIT licensed. Go dependencies retain their upstream BSD-style licenses. Runtime document tools come from Debian repositories. No proprietary Rongta component is redistributed.

@@ -1,1 +1,0 @@
-SUBSYSTEM=="usb", ATTR{idVendor}=="0fe6", ATTR{idProduct}=="811e", MODE="0660", GROUP="lp", TAG+="systemd"
