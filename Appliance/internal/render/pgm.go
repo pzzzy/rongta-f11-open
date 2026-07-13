@@ -14,6 +14,52 @@ type Image struct {
 	Gray          []byte
 }
 
+func FitGrayCanvas(gray []byte, width, height, canvasWidth, canvasHeight int) ([]byte, error) {
+	if width <= 0 || height <= 0 || canvasWidth <= 0 || canvasWidth > 1664 || canvasHeight <= 0 || canvasHeight > 2842 || len(gray) != width*height {
+		return nil, errors.New("fit dimensions")
+	}
+	if width == canvasWidth && height == canvasHeight {
+		return append([]byte(nil), gray...), nil
+	}
+	scaleX := float64(canvasWidth) / float64(width)
+	scaleY := float64(canvasHeight) / float64(height)
+	scale := scaleX
+	if scaleY < scale {
+		scale = scaleY
+	}
+	dstWidth := int(float64(width)*scale + 0.5)
+	dstHeight := int(float64(height)*scale + 0.5)
+	if dstWidth < 1 {
+		dstWidth = 1
+	}
+	if dstHeight < 1 {
+		dstHeight = 1
+	}
+	out := bytes.Repeat([]byte{255}, canvasWidth*canvasHeight)
+	x0 := (canvasWidth - dstWidth) / 2
+	y0 := (canvasHeight - dstHeight) / 2
+	for y := 0; y < dstHeight; y++ {
+		sy := y * height / dstHeight
+		for x := 0; x < dstWidth; x++ {
+			sx := x * width / dstWidth
+			out[(y0+y)*canvasWidth+x0+x] = gray[sy*width+sx]
+		}
+	}
+	return out, nil
+}
+
+func CenterPadGray(gray []byte, width, height, outputWidth int) ([]byte, error) {
+	if width <= 0 || height <= 0 || outputWidth < width || len(gray) != width*height {
+		return nil, errors.New("padding dimensions")
+	}
+	out := bytes.Repeat([]byte{255}, outputWidth*height)
+	x0 := (outputWidth - width) / 2
+	for y := 0; y < height; y++ {
+		copy(out[y*outputWidth+x0:], gray[y*width:(y+1)*width])
+	}
+	return out, nil
+}
+
 func token(r *bufio.Reader) (string, error) {
 	for {
 		b, e := r.ReadByte()
@@ -50,6 +96,14 @@ func token(r *bufio.Reader) (string, error) {
 	}
 }
 func ParsePGM(data []byte, wantWidth, wantHeight int) (Image, error) {
+	return ParsePGMHeightRange(data, wantWidth, wantHeight, wantHeight)
+}
+
+func ParsePGMHeightRange(data []byte, wantWidth, minHeight, maxHeight int) (Image, error) {
+	return ParsePGMRange(data, wantWidth, wantWidth, minHeight, maxHeight)
+}
+
+func ParsePGMRange(data []byte, minWidth, maxWidth, minHeight, maxHeight int) (Image, error) {
 	r := bufio.NewReader(bytes.NewReader(data))
 	magic, e := token(r)
 	if e != nil || magic != "P5" {
@@ -79,7 +133,7 @@ func ParsePGM(data []byte, wantWidth, wantHeight int) (Image, error) {
 	if e != nil || max != 255 {
 		return Image{}, errors.New("8-bit PGM required")
 	}
-	if w != wantWidth || h != wantHeight || w <= 0 || h <= 0 {
+	if w < minWidth || w > maxWidth || h < minHeight || h > maxHeight || minWidth <= 0 || maxWidth < minWidth || minHeight <= 0 || maxHeight < minHeight {
 		return Image{}, fmt.Errorf("unexpected geometry %dx%d", w, h)
 	}
 	pixels := make([]byte, w*h)

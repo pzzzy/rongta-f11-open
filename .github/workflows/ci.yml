@@ -54,13 +54,17 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/f11d-arm64 ./cmd/f11d
           CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o /tmp/f11d-armv7 ./cmd/f11d
           file /tmp/f11d-arm64 /tmp/f11d-armv7
-      - name: Backend integration and shell quality
+      - name: Filter integration and shell quality
         run: |
-          bash -n cups/f11 scripts/install.sh Tests/backend-integration.sh
-          shellcheck cups/f11 scripts/install.sh Tests/backend-integration.sh
-          python3 -m py_compile scripts/allow-airprint-nftables.py Tests/firewall-helper.py
+          bash -n cups/pdftof11 cups/f11-migration-hold scripts/f11-health.sh scripts/install.sh Tests/filter-integration.sh
+          shellcheck cups/pdftof11 cups/f11-migration-hold scripts/f11-health.sh scripts/install.sh Tests/filter-integration.sh
+          python3 -m py_compile scripts/*.py Tests/*.py
           python3 Tests/firewall-helper.py
-          grep -Fq 'm0755 "$ROOT/cups/f11" /usr/lib/cups/backend/f11' scripts/install.sh
+          python3 Tests/filter-architecture.py
+          python3 Tests/media-options.py
+          python3 Tests/runtime-health.py
+          python3 Tests/queue-migration.py
           test -z "$(grep -F '/tmp/f11d-install' scripts/install.sh || true)"
           test -z "$(grep -F 'lpadmin -x Rongta_F11' scripts/install.sh || true)"
-          ./Tests/backend-integration.sh
+          test "$(cat cups/0fe6-811e.usb-quirks)" = '0x0fe6 0x811e unidir delay-close'
+          ./Tests/filter-integration.sh

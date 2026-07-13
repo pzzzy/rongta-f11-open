@@ -1,0 +1,7 @@
+#!/bin/bash
+if [[ $# -eq 0 ]]; then
+  echo 'direct f11:/ "Rongta F11 Migration Hold" "F11 queue held for safe migration"'
+  exit 0
+fi
+echo 'INFO: Legacy F11 queue is held for safe transport migration.' >&2
+exit 4

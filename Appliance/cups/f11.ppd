@@ -1,6 +1,6 @@
 *PPD-Adobe: "4.3"
 *FormatVersion: "4.3"
-*FileVersion: "1.0"
+*FileVersion: "1.1"
 *LanguageVersion: English
 *LanguageEncoding: ISOLatin1
 *PCFileName: "F11.PPD"
@@ -15,15 +15,19 @@
 *DefaultColorSpace: Gray
 *FileSystem: False
 *Throughput: "1"
-*cupsFilter2: "application/pdf application/pdf 0 -"
-*DefaultPageSize: Letter
-*PageSize Letter/US Letter: "<</PageSize[612 792]>>setpagedevice"
-*DefaultPageRegion: Letter
-*PageRegion Letter/US Letter: "<</PageSize[612 792]>>setpagedevice"
-*DefaultImageableArea: Letter
-*ImageableArea Letter: "0 0 612 792"
-*DefaultPaperDimension: Letter
-*PaperDimension Letter: "612 792"
+*cupsFilter: "application/pdf 0 pdftof11"
+*DefaultPageSize: F11Short
+*PageSize F11Short/F11 Short (32 mm): "<</PageSize[590 90.8]>>setpagedevice"
+*PageSize Letter.Fullbleed/US Letter: "<</PageSize[612 792]>>setpagedevice"
+*DefaultPageRegion: F11Short
+*PageRegion F11Short/F11 Short (32 mm): "<</PageSize[590 90.8]>>setpagedevice"
+*PageRegion Letter.Fullbleed/US Letter: "<</PageSize[612 792]>>setpagedevice"
+*DefaultImageableArea: F11Short
+*ImageableArea F11Short: "0 0 590 90.8"
+*ImageableArea Letter.Fullbleed: "0 0 612 792"
+*DefaultPaperDimension: F11Short
+*PaperDimension F11Short: "590 90.8"
+*PaperDimension Letter.Fullbleed: "612 792"
 *DefaultResolution: 203dpi
 *Resolution 203dpi/203 DPI: "<</HWResolution[203 203]>>setpagedevice"
 *DefaultFont: Courier
