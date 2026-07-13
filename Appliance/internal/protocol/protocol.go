@@ -260,6 +260,7 @@ func Monochrome(gray []byte, width, height int) ([][]byte, error) {
 type Settings struct{ Speed, Density, Tracking, Copies int }
 type DecodedJob struct {
 	WidthBytes, Height int
+	Copies             int
 	Rows               [][]byte
 }
 
@@ -533,5 +534,5 @@ func DecodeJob(data []byte) (DecodedJob, error) {
 	if e != nil || copies[0] == 0 || copies[1] != 0x13 || copies[2] != 0 {
 		return DecodedJob{}, errors.New("copies frame")
 	}
-	return DecodedJob{rowBytes, h, rows}, nil
+	return DecodedJob{WidthBytes: rowBytes, Height: h, Copies: int(copies[0]), Rows: rows}, nil
 }

@@ -120,6 +120,9 @@ func TestFullNativeWidthJobRoundTrip(t *testing.T) {
 	if job.WidthBytes != 208 || job.Height != 15 || len(job.Rows) != 15 {
 		t.Fatalf("%+v", job)
 	}
+	if job.Copies != 1 {
+		t.Fatalf("copies=%d", job.Copies)
+	}
 }
 
 func TestStrictValidationRejectsUnknownAndMalformedFrames(t *testing.T) {
