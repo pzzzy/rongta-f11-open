@@ -75,7 +75,7 @@ Standalone raw USB sending is intentionally not installed. CUPS is the sole prod
 - Normalized PDF: at most 64 MiB.
 - Pages: 1–20.
 - Raster: native width 1,664 dots; page height is preserved at 203 dpi and bounded to 20–2,233 rows.
-- Media presets: F11 Short (32 mm, default), borderless 4×6, 5×7, A5, 8×10, and US Letter. Each standard preset uses a true 203-dpi logical canvas centered on the fixed 1,664-dot head, so smaller selections print at their intended physical width instead of being enlarged to full head width.
+- Media presets: F11 Short (32 mm, default), borderless 4×6, 5×7, A5, 8×10, and US Letter. The 4×6, 5×7, A5, and 8×10 presets use true 203-dpi logical canvases centered on the fixed 1,664-dot head. Letter is compatibility media: its 8.5-inch width exceeds the approximately 8.197-inch head, so it is uniformly fitted to the maximum printable width without distortion.
 - For landscape source pages, 4×6 and 5×7 logical canvases rotate when their long edge still fits the 1,664-dot head. Larger presets remain portrait because their landscape width exceeds the physical head. PDF `/Rotate` metadata is included in the effective page orientation.
 - Rendering uses uniform aspect-preserving fit with centered white padding. iOS decides which generic scaling controls each source app exposes; the driver does not claim a custom zoom slider or unverified fill/crop behavior.
 - Copies: expanded by the filter only; each encoded protocol job has one copy.

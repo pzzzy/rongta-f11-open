@@ -120,7 +120,7 @@ set -e
 [[ $bad_media_rc -ne 0 && ! -s "$TMP/bad-media-output" ]]
 # Media helper output is untrusted: plausible output plus failure, trailing fields,
 # oversized dimensions, or nonnumeric dimensions must all fail before stdout.
-for case in nonzero extra multiline doublespace leading trailing wide text; do
+for case in nonzero extra multiline doublespace leading trailing wide overflow text; do
   helper="$TMP/media-$case"
   case $case in
     nonzero) printf '#!/bin/sh\nprintf "812 1218\\n"\nexit 42\n' >"$helper" ;;
@@ -130,6 +130,7 @@ for case in nonzero extra multiline doublespace leading trailing wide text; do
     leading) printf '#!/bin/sh\nprintf " 812 1218\\n"\n' >"$helper" ;;
     trailing) printf '#!/bin/sh\nprintf "812 1218 \\n"\n' >"$helper" ;;
     wide) printf '#!/bin/sh\nprintf "1665 1218\\n"\n' >"$helper" ;;
+    overflow) printf '#!/bin/sh\nprintf "18446744073709551617 1218\\n"\n' >"$helper" ;;
     text) printf '#!/bin/sh\nprintf "812 nope\\n"\n' >"$helper" ;;
   esac
   chmod 0755 "$helper"
@@ -140,6 +141,31 @@ for case in nonzero extra multiline doublespace leading trailing wide text; do
   set -e
   [[ $helper_rc -ne 0 && ! -s "$TMP/bad-$case-output" ]]
 done
+[[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
+# Page geometry helper output is also untrusted and must fail before stdout.
+for case in nonzero extra multiline overflow text; do
+  helper="$TMP/page-$case"
+  case $case in
+    nonzero) printf '#!/bin/sh\nprintf "1218 812\\n"\nexit 42\n' >"$helper" ;;
+    extra) printf '#!/bin/sh\nprintf "1218 812 extra\\n"\n' >"$helper" ;;
+    multiline) printf '#!/bin/sh\nprintf "1218 812\\nEXTRA\\n"\n' >"$helper" ;;
+    overflow) printf '#!/bin/sh\nprintf "18446744073709551617 812\\n"\n' >"$helper" ;;
+    text) printf '#!/bin/sh\nprintf "wide 812\\n"\n' >"$helper" ;;
+  esac
+  chmod 0755 "$helper"
+  set +e
+  F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$helper" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+    "$ROOT/cups/pdftof11" 104 tester "bad-page-$case" 1 'PageSize=4x6.Fullbleed' "$TMP/short.pdf" >"$TMP/bad-page-$case-output" 2>"$TMP/bad-page-$case.log"
+  page_rc=$?
+  set -e
+  [[ $page_rc -ne 0 && ! -s "$TMP/bad-page-$case-output" ]]
+done
+set +e
+F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
+  "$ROOT/cups/pdftof11" 105 tester bad-copies 18446744073709551617 'PageSize=4x6.Fullbleed' "$TMP/short.pdf" >"$TMP/bad-copies-output" 2>"$TMP/bad-copies.log"
+copies_rc=$?
+set -e
+[[ $copies_rc -ne 0 && ! -s "$TMP/bad-copies-output" ]]
 [[ -z $(find "$TMP/spool" -mindepth 1 -print -quit) ]]
 # GNU timeout must force-kill a renderer that ignores SIGTERM.
 set +e
