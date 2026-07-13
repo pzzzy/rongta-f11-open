@@ -188,7 +188,7 @@ func main() {
 			emit(result{Error: e.Error()}, 1)
 		}
 		sum := sha256.Sum256(stream)
-		emit(result{OK: true, Command: "validate", Detail: map[string]any{"bytes": len(stream), "rows": decoded.Height, "width_bytes": decoded.WidthBytes, "sha256": hex.EncodeToString(sum[:])}}, 0)
+		emit(result{OK: true, Command: "validate", Detail: map[string]any{"bytes": len(stream), "rows": decoded.Height, "width_bytes": decoded.WidthBytes, "copies": decoded.Copies, "sha256": hex.EncodeToString(sum[:])}}, 0)
 
 	default:
 		emit(result{Error: "unknown command"}, 2)

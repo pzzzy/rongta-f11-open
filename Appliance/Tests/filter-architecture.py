@@ -15,6 +15,14 @@ assert 'PAGE_HEIGHT=${PAGE_HEIGHT:-/usr/local/lib/f11/pdf-page-height}' in text
 assert 'pdf-page-height.py" /usr/local/lib/f11/pdf-page-height' in installer
 assert 'MEDIA_CANVAS=${MEDIA_CANVAS:-/usr/local/lib/f11/media-canvas}' in text
 assert 'media-canvas.py" /usr/local/lib/f11/media-canvas' in installer
+assert '-o "$BUILD_DIR/bannerprint" ./cmd/bannerprint' in installer
+assert 'install -o root -g root -m0755 "$BUILD_DIR/bannerprint" /usr/local/bin/bannerprint' in installer
+assert 'ComicNeue-OFL.txt" /usr/share/doc/rongta-f11-open/ComicNeue-OFL.txt' in installer
+banner_source = (root / "internal/banner/banner.go").read_text()
+assert "ComicNeue-Bold.otf" in banner_source
+assert '"/usr/local/lib/f11/check-f11-runtime"' in (root / "cmd/bannerprint/main.go").read_text()
+assert (root / "internal/banner/assets/ComicNeue-Bold.otf").stat().st_size > 30000
+assert "SIL OPEN FONT LICENSE Version 1.1" in (root / "internal/banner/assets/ComicNeue-OFL.txt").read_text()
 assert "f11d send" not in text and '"$F11D" send' not in text
 assert "F11_OUTPUT_DIR" in text, "filter needs testable pre-emission staging"
 assert "validate" in text

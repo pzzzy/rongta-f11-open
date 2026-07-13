@@ -26,6 +26,64 @@ func TestRejectsEmptyAndOverlong(t *testing.T) {
 		t.Fatal("long")
 	}
 }
+func TestPlanExactLineCounts(t *testing.T) {
+	text := "MEETING IN PROGRESS PLEASE WAIT"
+	for _, count := range []int{1, 2, 3} {
+		layout, err := PlanLines(text, 3045, 1664, 45, count, FontGoBold)
+		if err != nil {
+			t.Fatalf("lines=%d: %v", count, err)
+		}
+		if len(layout.Lines) != count {
+			t.Fatalf("lines=%d got=%#v", count, layout.Lines)
+		}
+		joined := ""
+		for _, line := range layout.Lines {
+			if joined != "" {
+				joined += " "
+			}
+			joined += line
+		}
+		if joined != text {
+			t.Fatalf("lines=%d changed text: %q", count, joined)
+		}
+	}
+}
+
+func TestPlanAutoUsesAtMostThreeLinesAndMaximizesType(t *testing.T) {
+	text := "MEETING IN PROGRESS PLEASE WAIT"
+	auto, err := PlanLines(text, 3045, 1664, 45, 0, FontGoBold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(auto.Lines) < 1 || len(auto.Lines) > 3 {
+		t.Fatalf("auto lines=%#v", auto.Lines)
+	}
+	for count := 1; count <= 3; count++ {
+		forced, err := PlanLines(text, 3045, 1664, 45, count, FontGoBold)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if auto.FontSize+0.01 < forced.FontSize {
+			t.Fatalf("auto %.2f smaller than %d-line %.2f", auto.FontSize, count, forced.FontSize)
+		}
+	}
+}
+
+func TestPlanRejectsImpossibleLinesAndUnknownFont(t *testing.T) {
+	if _, err := PlanLines("TWO WORDS", 3045, 1664, 45, 3, FontGoBold); err == nil {
+		t.Fatal("accepted more lines than words")
+	}
+	if _, err := PlanLines("TWO WORDS", 3045, 1664, 45, 2, FontStyle("papyrus")); err == nil {
+		t.Fatal("accepted unknown font")
+	}
+}
+
+func TestComicSansStyleIsExplicitAndNonDefault(t *testing.T) {
+	if FontGoBold == FontComicSans || FontGoBold != "bold" || FontComicSans != "comic-sans" {
+		t.Fatalf("font constants bold=%q comic=%q", FontGoBold, FontComicSans)
+	}
+}
+
 func TestRenderLandscapeRotatesToPrinterGeometry(t *testing.T) {
 	l, err := Plan("PLEASE DON'T PARK YOUR TRAILER HERE", 3045, 1664, 45)
 	if err != nil {

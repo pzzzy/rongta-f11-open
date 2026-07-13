@@ -34,7 +34,7 @@ sudo ./scripts/install.sh
 The installer:
 
 - installs maintained Debian CUPS, Avahi, qpdf, Poppler, Ghostscript, and Go packages;
-- runs tests and vet, then builds `f11d` locally;
+- runs tests and vet, then builds `f11d` and `bannerprint` locally;
 - installs the unprivileged PDF-to-F11 stdout filter and clean-room PPD;
 - discovers exactly one F11 using `/usr/lib/cups/backend/usb` and pins its discovered URI, including serial when supplied by CUPS;
 - refuses ambiguous hardware or an unrelated existing `Rongta_F11` queue;
@@ -48,6 +48,28 @@ Firewall changes are opt-in:
 ```bash
 sudo ./scripts/install.sh --configure-nftables
 ```
+
+## Huge text banners
+
+`bannerprint` renders a full-width, approximately 15-inch-long roll banner, independently validates the complete F11 stream, and submits exactly one raw job through the configured CUPS queue. It never opens USB directly.
+
+```bash
+bannerprint "SYSTEM OFFLINE"
+bannerprint --lines 1 "ONE LARGE LINE"
+bannerprint --lines 2 "PLEASE USE OTHER DOOR"
+bannerprint --lines 3 "MEETING IN PROGRESS PLEASE WAIT"
+bannerprint --font comic-sans --lines 2 "NO PARKING"
+bannerprint --preview --lines auto "INSPECT WITHOUT PRINTING"
+```
+
+- `--lines auto` (default) evaluates one, two, and three contiguous word-preserving lines and chooses the largest type.
+- `--lines 1`, `2`, or `3` forces that exact line count; there must be at least one word per line.
+- `--font bold` is the default embedded Go Bold face.
+- `--font comic-sans` uses embedded Comic Neue Bold, an open-source Comic Sans-style face under SIL OFL 1.1. Microsoft Comic Sans is not distributed.
+- `--preview` performs full layout, render, encode, independent decode, copy-count verification, and raster comparison without calling CUPS or printing.
+- Input is bounded to 256 valid UTF-8 bytes and 16 words. Control characters, combining marks, and glyphs unsupported by the selected face are rejected before CUPS. The accepted 16-word worst case completed in 4 seconds on the original single-core Pi Zero W under a 30-second hard test deadline.
+- Copies are forced to one in both the validated F11 stream and `lp -n 1`. Before submission, the queue URI and attached USB device are checked with the same serial-aware F11 runtime identity verifier used by appliance health.
+- The validated stream is piped to `lp` over stdin, so no temporary banner document remains after success, error, or interruption. Set `F11_QUEUE` or use `--queue NAME` only when targeting a different local F11 CUPS queue.
 
 ## Diagnostics (never print)
 

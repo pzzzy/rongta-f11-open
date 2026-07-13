@@ -53,11 +53,16 @@ cd "$ROOT"
 go test ./...
 go vet ./...
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/f11d" ./cmd/f11d
+CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/bannerprint" ./cmd/bannerprint
 getent group f11print >/dev/null || groupadd --system f11print
 id -u f11print >/dev/null 2>&1 || useradd --system --home-dir /var/lib/f11 --create-home --shell /usr/sbin/nologin --gid f11print f11print
 usermod -aG lp f11print
 install -d -o root -g root -m0755 /usr/local/lib/f11
 install -o root -g root -m0755 "$BUILD_DIR/f11d" /usr/local/lib/f11/f11d
+install -d -o root -g root -m0755 /usr/local/bin
+install -o root -g root -m0755 "$BUILD_DIR/bannerprint" /usr/local/bin/bannerprint
+install -d -o root -g root -m0755 /usr/share/doc/rongta-f11-open
+install -o root -g root -m0644 "$ROOT/internal/banner/assets/ComicNeue-OFL.txt" /usr/share/doc/rongta-f11-open/ComicNeue-OFL.txt
 install -o root -g root -m0755 "$ROOT/scripts/f11-health.sh" /usr/local/lib/f11/f11-health
 install -o root -g root -m0755 "$ROOT/scripts/plan-queue-migration.py" /usr/local/lib/f11/plan-queue-migration
 install -o root -g root -m0755 "$ROOT/scripts/check-f11-runtime.py" /usr/local/lib/f11/check-f11-runtime
