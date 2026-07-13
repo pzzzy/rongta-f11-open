@@ -4,12 +4,20 @@ export LC_ALL=C
 PATH=/usr/local/lib/f11:/usr/bin:/bin
 F11D=${F11D:-/usr/local/lib/f11/f11d}
 PAGE_HEIGHT=${PAGE_HEIGHT:-/usr/local/lib/f11/pdf-page-height}
+MEDIA_CANVAS=${MEDIA_CANVAS:-/usr/local/lib/f11/media-canvas}
 F11_SPOOL=${F11_SPOOL:-/var/spool/f11}
 [[ $# -ge 5 ]] || { echo 'ERROR: expected CUPS filter arguments' >&2; exit 1; }
 [[ -x "$F11D" ]] || { echo "ERROR: missing f11d: $F11D" >&2; exit 1; }
 [[ -x "$PAGE_HEIGHT" ]] || { echo "ERROR: missing page geometry helper: $PAGE_HEIGHT" >&2; exit 1; }
+[[ -x "$MEDIA_CANVAS" ]] || { echo "ERROR: missing media canvas helper: $MEDIA_CANVAS" >&2; exit 1; }
 COPIES=${4//[^0-9]/}
 [[ $COPIES =~ ^[0-9]+$ && $COPIES -ge 1 && $COPIES -le 255 ]] || { echo 'ERROR: invalid copies' >&2; exit 1; }
+CANVAS=$($MEDIA_CANVAS "$5") || { echo 'ERROR: invalid media selection' >&2; exit 1; }
+[[ $CANVAS =~ ^[0-9]+\ [0-9]+$ ]] || { echo 'ERROR: invalid media geometry' >&2; exit 1; }
+CANVAS_WIDTH=${CANVAS%% *}
+CANVAS_HEIGHT=${CANVAS##* }
+[[ $CANVAS_WIDTH -ge 1 && $CANVAS_WIDTH -le 1664 ]] || { echo 'ERROR: invalid media width' >&2; exit 1; }
+[[ $CANVAS_HEIGHT -ge 20 && $CANVAS_HEIGHT -le 2233 ]] || { echo 'ERROR: invalid media height' >&2; exit 1; }
 TMP=$(mktemp -d "${F11_OUTPUT_DIR:-$F11_SPOOL}/filter.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 if [[ $# -ge 6 && -n ${6:-} ]]; then
@@ -20,19 +28,29 @@ else
   [[ $(stat -c %s "$TMP/input.pdf") -le 67108864 ]] || { echo 'ERROR: job too large' >&2; exit 1; }
 fi
 set +e
-timeout 20 qpdf "$TMP/input.pdf" "$TMP/normalized.pdf" >&2
+timeout --kill-after=10s 60s qpdf "$TMP/input.pdf" "$TMP/normalized.pdf" >&2
 RC=$?
 set -e
 [[ $RC -eq 0 || $RC -eq 3 ]] || { echo "ERROR: invalid PDF (qpdf status $RC)" >&2; exit 1; }
-timeout 20 qpdf --check "$TMP/normalized.pdf" >/dev/null
-PAGES=$(timeout 20 qpdf --show-npages "$TMP/normalized.pdf")
+timeout --kill-after=10s 60s qpdf --check "$TMP/normalized.pdf" >/dev/null
+PAGES=$(timeout --kill-after=10s 20s qpdf --show-npages "$TMP/normalized.pdf")
 [[ $PAGES =~ ^[0-9]+$ && $PAGES -ge 1 && $PAGES -le 20 ]] || { echo 'ERROR: page count' >&2; exit 1; }
 MANIFEST="$TMP/manifest"
 : >"$MANIFEST"
 for ((page=1; page<=PAGES; page++)); do
-  HEIGHT=$($PAGE_HEIGHT "$TMP/normalized.pdf" "$page")
-  timeout 60 pdftoppm -f "$page" -l "$page" -singlefile -r 203 -gray "$TMP/normalized.pdf" "$TMP/source-$page"
-  "$F11D" compose-pgm "$TMP/source-$page.pgm" "$TMP/page-$page.pgm" "$HEIGHT" >&2
+  PAGE_GEOMETRY=$($PAGE_HEIGHT --dimensions "$TMP/normalized.pdf" "$page") || { echo 'ERROR: page geometry' >&2; exit 1; }
+  [[ $PAGE_GEOMETRY =~ ^[0-9]+\ [0-9]+$ ]] || { echo 'ERROR: invalid page geometry' >&2; exit 1; }
+  PAGE_WIDTH=${PAGE_GEOMETRY%% *}
+  PAGE_RASTER_HEIGHT=${PAGE_GEOMETRY##* }
+  PAGE_CANVAS_WIDTH=$CANVAS_WIDTH
+  PAGE_CANVAS_HEIGHT=$CANVAS_HEIGHT
+  if [[ $PAGE_WIDTH -gt $PAGE_RASTER_HEIGHT && $CANVAS_WIDTH -lt $CANVAS_HEIGHT && $CANVAS_HEIGHT -le 1664 ]]; then
+    PAGE_CANVAS_WIDTH=$CANVAS_HEIGHT
+    PAGE_CANVAS_HEIGHT=$CANVAS_WIDTH
+  fi
+  timeout --kill-after=10s 120s gs -q -dSAFER -dBATCH -dNOPAUSE -dFirstPage="$page" -dLastPage="$page" \
+    -sDEVICE=pgmraw -r203 -sOutputFile="$TMP/source-$page.pgm" "$TMP/normalized.pdf"
+  "$F11D" compose-pgm "$TMP/source-$page.pgm" "$TMP/page-$page.pgm" "$PAGE_CANVAS_WIDTH" "$PAGE_CANVAS_HEIGHT" >&2
   "$F11D" encode-pgm "$TMP/page-$page.pgm" "$TMP/page-$page.f11" >&2
   "$F11D" validate "$TMP/page-$page.f11" >&2
 done

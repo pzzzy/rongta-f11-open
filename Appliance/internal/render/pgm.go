@@ -48,6 +48,17 @@ func FitGrayCanvas(gray []byte, width, height, canvasWidth, canvasHeight int) ([
 	return out, nil
 }
 
+func FitGrayHeadCanvas(gray []byte, width, height, logicalWidth, logicalHeight, headWidth int) ([]byte, error) {
+	if logicalWidth <= 0 || logicalWidth > headWidth || headWidth > 1664 || logicalHeight <= 0 || logicalHeight > 2233 {
+		return nil, errors.New("head canvas dimensions")
+	}
+	logical, err := FitGrayCanvas(gray, width, height, logicalWidth, logicalHeight)
+	if err != nil {
+		return nil, err
+	}
+	return CenterPadGray(logical, logicalWidth, logicalHeight, headWidth)
+}
+
 func CenterPadGray(gray []byte, width, height, outputWidth int) ([]byte, error) {
 	if width <= 0 || height <= 0 || outputWidth < width || len(gray) != width*height {
 		return nil, errors.New("padding dimensions")

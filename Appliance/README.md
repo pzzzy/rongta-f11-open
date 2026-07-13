@@ -9,7 +9,7 @@ iPhone/macOS
   -> Bonjour + IPP/IPPS
   -> CUPS document normalization
   -> unprivileged pdftof11 filter
-  -> qpdf validation + Poppler 203-dpi grayscale raster
+  -> qpdf validation + bounded Ghostscript 203-dpi grayscale raster
   -> clean-room Go F11 encoder
   -> strict independent decode/row comparison
   -> complete validated RTProtocol job on stdout
@@ -75,8 +75,9 @@ Standalone raw USB sending is intentionally not installed. CUPS is the sole prod
 - Normalized PDF: at most 64 MiB.
 - Pages: 1–20.
 - Raster: native width 1,664 dots; page height is preserved at 203 dpi and bounded to 20–2,233 rows.
-- Media presets currently validated: F11 Short (32 mm, default) and borderless US Letter.
-- Rendering uses uniform aspect-preserving fit with centered white padding; iOS decides which generic scaling controls each source app exposes. Additional named sizes and fill/crop behavior are intentionally not advertised until independently tested.
+- Media presets: F11 Short (32 mm, default), borderless 4×6, 5×7, A5, 8×10, and US Letter. Each standard preset uses a true 203-dpi logical canvas centered on the fixed 1,664-dot head, so smaller selections print at their intended physical width instead of being enlarged to full head width.
+- For landscape source pages, 4×6 and 5×7 logical canvases rotate when their long edge still fits the 1,664-dot head. Larger presets remain portrait because their landscape width exceeds the physical head. PDF `/Rotate` metadata is included in the effective page orientation.
+- Rendering uses uniform aspect-preserving fit with centered white padding. iOS decides which generic scaling controls each source app exposes; the driver does not claim a custom zoom slider or unverified fill/crop behavior.
 - Copies: expanded by the filter only; each encoded protocol job has one copy.
 - Every page/copy is staged and fully validated before the first byte reaches filter stdout. A later-page failure emits no partial printer stream.
 - Temporary directories are private and removed on all normal/error exits.

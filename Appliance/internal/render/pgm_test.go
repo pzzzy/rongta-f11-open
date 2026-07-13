@@ -47,6 +47,37 @@ func TestFitGrayCanvasPreservesAspectAndCenters(t *testing.T) {
 	}
 }
 
+func TestFitGrayHeadCanvasUsesLogicalPhysicalWidth(t *testing.T) {
+	// A 4x6-sized logical canvas is centered on the wider fixed print head.
+	src := bytes.Repeat([]byte{0}, 4*6)
+	got, err := FitGrayHeadCanvas(src, 4, 6, 8, 12, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 16*12 {
+		t.Fatalf("length=%d", len(got))
+	}
+	for y := 0; y < 12; y++ {
+		row := got[y*16 : (y+1)*16]
+		for x := 0; x < 4; x++ {
+			if row[x] != 255 || row[15-x] != 255 {
+				t.Fatalf("row %d not centered: %v", y, row)
+			}
+		}
+		for x := 4; x < 12; x++ {
+			if row[x] != 0 {
+				t.Fatalf("row %d logical canvas missing at x=%d", y, x)
+			}
+		}
+	}
+}
+
+func TestFitGrayHeadCanvasRejectsBadLogicalWidth(t *testing.T) {
+	if _, err := FitGrayHeadCanvas([]byte{0}, 1, 1, 17, 12, 16); err == nil {
+		t.Fatal("accepted logical canvas wider than head")
+	}
+}
+
 func TestFitGrayCanvasExactIdentity(t *testing.T) {
 	src := []byte{0, 1, 2, 3}
 	got, err := FitGrayCanvas(src, 2, 2, 2, 2)
