@@ -239,6 +239,45 @@ func ParseNotification(data []byte) (Envelope, bool, error) {
 	return Envelope{MessageID: m.Metadata.MessageID, Cheer: m.Payload.Event}, true, nil
 }
 
+func ParseChatCommand(data []byte, broadcasterID string) (Envelope, bool, error) {
+	var m struct {
+		Metadata struct {
+			MessageType      string `json:"message_type"`
+			SubscriptionType string `json:"subscription_type"`
+		} `json:"metadata"`
+		Payload struct {
+			Event struct {
+				BroadcasterID string `json:"broadcaster_user_id"`
+				ChatterID     string `json:"chatter_user_id"`
+				ChatterLogin  string `json:"chatter_user_login"`
+				MessageID     string `json:"message_id"`
+				Message       struct {
+					Text string `json:"text"`
+				} `json:"message"`
+			} `json:"event"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Envelope{}, false, err
+	}
+	if m.Metadata.MessageType != "notification" || m.Metadata.SubscriptionType != "channel.chat.message" {
+		return Envelope{}, false, nil
+	}
+	e := m.Payload.Event
+	if e.BroadcasterID != broadcasterID || e.ChatterID != broadcasterID || e.MessageID == "" {
+		return Envelope{}, false, nil
+	}
+	fields := strings.Fields(e.Message.Text)
+	if len(fields) < 2 || !strings.EqualFold(fields[0], "!testbanner") {
+		return Envelope{}, false, nil
+	}
+	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e.Message.Text), fields[0]))
+	if text == "" {
+		return Envelope{}, false, nil
+	}
+	return Envelope{MessageID: "chat:" + e.MessageID, Cheer: Cheer{Bits: 1000, UserName: e.ChatterLogin, Message: text}}, true, nil
+}
+
 type OAuthCallback struct {
 	Code  string
 	Error string

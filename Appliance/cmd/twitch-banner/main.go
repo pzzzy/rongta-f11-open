@@ -24,11 +24,11 @@ const redirectURI = "http://localhost:17563/twitch/callback"
 var wsURL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30"
 
 type config struct {
-	ClientID, ClientSecret, Channel, Queue, TokenFile, JournalFile string
+	ClientID, ClientSecret, Channel, BroadcasterID, Queue, TokenFile, JournalFile string
 }
 
 func envConfig() (config, error) {
-	c := config{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET"), Channel: strings.ToLower(os.Getenv("TWITCH_CHANNEL")), Queue: os.Getenv("F11_QUEUE"), TokenFile: os.Getenv("TWITCH_TOKEN_FILE"), JournalFile: os.Getenv("TWITCH_JOURNAL_FILE")}
+	c := config{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET"), Channel: strings.ToLower(os.Getenv("TWITCH_CHANNEL")), BroadcasterID: os.Getenv("TWITCH_BROADCASTER_ID"), Queue: os.Getenv("F11_QUEUE"), TokenFile: os.Getenv("TWITCH_TOKEN_FILE"), JournalFile: os.Getenv("TWITCH_JOURNAL_FILE")}
 	if c.TokenFile == "" {
 		c.TokenFile = "/var/lib/twitch-banner/token.json"
 	}
@@ -38,8 +38,8 @@ func envConfig() (config, error) {
 	if c.Queue == "" {
 		c.Queue = "Rongta_F11_Media"
 	}
-	if c.ClientID == "" || c.ClientSecret == "" || c.Channel == "" {
-		return c, errors.New("TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, and TWITCH_CHANNEL are required")
+	if c.ClientID == "" || c.ClientSecret == "" || c.Channel == "" || c.BroadcasterID == "" {
+		return c, errors.New("TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL, and TWITCH_BROADCASTER_ID are required")
 	}
 	return c, nil
 }
@@ -100,7 +100,7 @@ func authorize(ctx context.Context, c config) error {
 		if err != nil {
 			return err
 		}
-		if err = identity.Validate(c.ClientID, c.Channel); err != nil {
+		if err = identity.Validate(c.ClientID, c.Channel, c.BroadcasterID); err != nil {
 			return err
 		}
 		if err = saveToken(c.TokenFile, tok); err != nil {
@@ -129,7 +129,7 @@ func freshToken(ctx context.Context, c config) (twitchbanner.Token, error) {
 	if err != nil {
 		return t, err
 	}
-	if err = identity.Validate(c.ClientID, c.Channel); err != nil {
+	if err = identity.Validate(c.ClientID, c.Channel, c.BroadcasterID); err != nil {
 		return t, err
 	}
 	return t, nil
@@ -180,6 +180,10 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 	if err != nil {
 		return err
 	}
+	if broadcaster != c.BroadcasterID {
+		return errors.New("configured Twitch login no longer resolves to pinned broadcaster ID")
+	}
+	broadcaster = c.BroadcasterID
 	conn, w, err := dialWelcome(ctx, wsURL)
 	if err != nil {
 		return err
@@ -188,7 +192,10 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 	if err = api.SubscribeCheer(ctx, broadcaster, w.Payload.Session.ID); err != nil {
 		return err
 	}
-	log.Printf("subscribed channel=%s broadcaster_id=%s", c.Channel, broadcaster)
+	if err = api.SubscribeChat(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		return err
+	}
+	log.Printf("subscribed channel=%s broadcaster_id=%s events=channel.cheer,channel.chat.message", c.Channel, broadcaster)
 	for {
 		if err = conn.SetReadDeadline(time.Now().Add(45 * time.Second)); err != nil {
 			return err
@@ -234,7 +241,14 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 			continue
 		}
 		if !ok {
-			continue
+			env, ok, parseErr = twitchbanner.ParseChatCommand(data, broadcaster)
+			if parseErr != nil {
+				log.Printf("invalid chat notification: %v", parseErr)
+				continue
+			}
+			if !ok {
+				continue
+			}
 		}
 		result, processErr := p.Process(ctx, env)
 		if processErr != nil {

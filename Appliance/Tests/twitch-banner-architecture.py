@@ -17,4 +17,5 @@ assert 'twitch-banner-authorize' in installer
 assert 'twitch-banner run' in unit
 assert 'go build' in installer and './cmd/twitch-banner' in installer
 assert 'F11_QUEUE=' in installer
+assert 'TWITCH_BROADCASTER_ID=' in installer
 print('twitch banner architecture: PASS')

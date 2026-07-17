@@ -1,6 +1,12 @@
 # Twitch Cheer Banner Printer
 
-A single `channel.cheer` event of at least 1,000 Bits prints one maximized banner through the validated `bannerprint`/CUPS/F11 path.
+A single `channel.cheer` event of at least 1,000 Bits prints one maximized banner through the validated `bannerprint`/CUPS/F11 path. The authenticated broadcaster may test the same path with a real chat message:
+
+```text
+!testbanner YOUR MESSAGE HERE
+```
+
+The chat command requires an exact Twitch user-ID match to the pinned `TWITCH_BROADCASTER_ID`; names, moderators, and other viewers cannot trigger it. For `uwogoob`, the pinned ID is `52588311`.
 
 ## Authorization
 
@@ -29,7 +35,7 @@ Open the printed URL on the Mac and authorize the configured broadcaster. The he
 - Event IDs are durably reserved before printing. Reserved events are never retried automatically.
 - Any malformed journal record prevents startup and requires explicit operator recovery.
 - EventSub reconnect messages use subscription-preserving socket handoff; fresh connections create one subscription.
-- The OAuth token must match the configured Twitch Client ID and broadcaster and include `bits:read`.
+- The OAuth token must match the configured Twitch Client ID and broadcaster and include `bits:read` and `user:read:chat`.
 - Qualifying events are handled serially; exactly one `bannerprint --lines auto` command is invoked.
 - The printer has no mechanical acknowledgement channel. A successful CUPS submission is not proof of visible output.
 

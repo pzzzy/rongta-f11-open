@@ -6,9 +6,11 @@ umask 077
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CLIENT_ID=${TWITCH_CLIENT_ID:-}
 CHANNEL=${TWITCH_CHANNEL:-}
+BROADCASTER_ID=${TWITCH_BROADCASTER_ID:-}
 QUEUE=${F11_QUEUE:-Rongta_F11_Media}
 [[ $CLIENT_ID =~ ^[a-z0-9]{20,64}$ ]] || { echo 'Set a valid TWITCH_CLIENT_ID.' >&2; exit 2; }
 [[ $CHANNEL =~ ^[a-zA-Z0-9_]{1,25}$ ]] || { echo 'Set a valid TWITCH_CHANNEL.' >&2; exit 2; }
+[[ $BROADCASTER_ID =~ ^[0-9]{1,20}$ ]] || { echo 'Set a valid TWITCH_BROADCASTER_ID.' >&2; exit 2; }
 [[ $QUEUE =~ ^Rongta_F11[A-Za-z0-9_.-]{0,115}$ ]] || { echo 'Set a valid F11_QUEUE.' >&2; exit 2; }
 command -v bannerprint >/dev/null || { echo 'bannerprint is not installed.' >&2; exit 1; }
 test -x /usr/local/lib/f11/check-f11-runtime || { echo 'F11 runtime verifier is not installed.' >&2; exit 1; }
@@ -39,6 +41,7 @@ ENV_NEW=$(mktemp /etc/twitch-banner/environment.new.XXXXXX)
   printf 'TWITCH_CLIENT_ID=%s\n' "$CLIENT_ID"
   printf 'TWITCH_CLIENT_SECRET=%s\n' "$CLIENT_SECRET"
   printf 'TWITCH_CHANNEL=%s\n' "${CHANNEL,,}"
+  printf 'TWITCH_BROADCASTER_ID=%s\n' "$BROADCASTER_ID"
   printf 'F11_QUEUE=%s\n' "$QUEUE"
   printf 'TWITCH_TOKEN_FILE=/var/lib/twitch-banner/token.json\n'
   printf 'TWITCH_JOURNAL_FILE=/var/lib/twitch-banner/events.jsonl\n'

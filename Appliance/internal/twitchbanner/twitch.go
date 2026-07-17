@@ -38,7 +38,7 @@ func AuthorizationURL(clientID, redirectURI string) (string, string, error) {
 		return "", "", err
 	}
 	state := base64.RawURLEncoding.EncodeToString(stateBytes)
-	v := url.Values{"client_id": {clientID}, "redirect_uri": {redirectURI}, "response_type": {"code"}, "scope": {"bits:read"}, "state": {state}, "force_verify": {"true"}}
+	v := url.Values{"client_id": {clientID}, "redirect_uri": {redirectURI}, "response_type": {"code"}, "scope": {"bits:read user:read:chat"}, "state": {state}, "force_verify": {"true"}}
 	return TwitchOAuthBase + "/authorize?" + v.Encode(), state, nil
 }
 
@@ -52,22 +52,32 @@ type APIClient struct {
 type TokenIdentity struct {
 	ClientID string   `json:"client_id"`
 	Login    string   `json:"login"`
+	UserID   string   `json:"user_id"`
 	Scopes   []string `json:"scopes"`
 }
 
-func (i TokenIdentity) Validate(clientID, login string) error {
+func (i TokenIdentity) Validate(clientID, login, userID string) error {
 	if i.ClientID != clientID {
 		return errors.New("OAuth token belongs to a different Twitch application")
 	}
 	if !strings.EqualFold(i.Login, login) {
 		return errors.New("OAuth token belongs to a different Twitch broadcaster")
 	}
+	if i.UserID != userID {
+		return errors.New("OAuth token belongs to a different Twitch broadcaster ID")
+	}
+	required := map[string]bool{"bits:read": false, "user:read:chat": false}
 	for _, scope := range i.Scopes {
-		if scope == "bits:read" {
-			return nil
+		if _, ok := required[scope]; ok {
+			required[scope] = true
 		}
 	}
-	return errors.New("OAuth token lacks bits:read")
+	for scope, present := range required {
+		if !present {
+			return fmt.Errorf("OAuth token lacks %s", scope)
+		}
+	}
+	return nil
 }
 
 func ValidateToken(ctx context.Context, h *http.Client, accessToken string) (TokenIdentity, error) {
@@ -147,6 +157,14 @@ func (c APIClient) SubscribeCheer(ctx context.Context, broadcasterID, sessionID 
 		return errors.New("broadcaster and WebSocket session IDs are required")
 	}
 	body := map[string]any{"type": "channel.cheer", "version": "1", "condition": map[string]string{"broadcaster_user_id": broadcasterID}, "transport": map[string]string{"method": "websocket", "session_id": sessionID}}
+	return c.doJSON(ctx, http.MethodPost, "/helix/eventsub/subscriptions", body, nil)
+}
+
+func (c APIClient) SubscribeChat(ctx context.Context, broadcasterID, sessionID string) error {
+	if broadcasterID == "" || sessionID == "" {
+		return errors.New("broadcaster and WebSocket session IDs are required")
+	}
+	body := map[string]any{"type": "channel.chat.message", "version": "1", "condition": map[string]string{"broadcaster_user_id": broadcasterID, "user_id": broadcasterID}, "transport": map[string]string{"method": "websocket", "session_id": sessionID}}
 	return c.doJSON(ctx, http.MethodPost, "/helix/eventsub/subscriptions", body, nil)
 }
 
