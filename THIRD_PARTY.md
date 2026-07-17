@@ -33,6 +33,15 @@ The Raspberry Pi appliance uses these Go modules at build time:
 
 `x/image` supplies the embedded open Go Bold font and deterministic text rasterization used by the Linux banner generator. `x/text` is its transitive text-processing dependency. Module versions and checksums are pinned in `Appliance/go.mod` and `Appliance/go.sum`; no prebuilt Go binaries are committed.
 
+## Gorilla WebSocket
+
+- Project: `gorilla/websocket`
+- Source: https://github.com/gorilla/websocket
+- Version: v1.5.3
+- License: BSD-2-Clause
+
+The optional Twitch EventSub service uses Gorilla WebSocket for its outbound EventSub connection and subscription-preserving reconnect handoff. The module version and checksum are pinned in `Appliance/go.mod` and `Appliance/go.sum`; no prebuilt dependency binary is committed.
+
 ## libusb
 
 - Project: libusb

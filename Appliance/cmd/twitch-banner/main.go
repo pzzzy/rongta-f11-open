@@ -204,6 +204,9 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 		if err != nil {
 			return err
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var meta struct {
 			Metadata struct {
 				MessageType string `json:"message_type"`

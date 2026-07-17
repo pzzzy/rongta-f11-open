@@ -220,23 +220,28 @@ func (p Processor) Process(ctx context.Context, env Envelope) (ProcessResult, er
 }
 
 func ParseNotification(data []byte) (Envelope, bool, error) {
-	var m struct {
+	var header struct {
 		Metadata struct {
 			MessageID        string `json:"message_id"`
 			MessageType      string `json:"message_type"`
 			SubscriptionType string `json:"subscription_type"`
 		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return Envelope{}, false, err
+	}
+	if header.Metadata.MessageType != "notification" || header.Metadata.SubscriptionType != "channel.cheer" {
+		return Envelope{}, false, nil
+	}
+	var body struct {
 		Payload struct {
 			Event Cheer `json:"event"`
 		} `json:"payload"`
 	}
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &body); err != nil {
 		return Envelope{}, false, err
 	}
-	if m.Metadata.MessageType != "notification" || m.Metadata.SubscriptionType != "channel.cheer" {
-		return Envelope{}, false, nil
-	}
-	return Envelope{MessageID: m.Metadata.MessageID, Cheer: m.Payload.Event}, true, nil
+	return Envelope{MessageID: header.Metadata.MessageID, Cheer: body.Payload.Event}, true, nil
 }
 
 func ParseChatCommand(data []byte, broadcasterID string) (Envelope, bool, error) {

@@ -65,6 +65,17 @@ func TestSubscribeChatUsesBroadcasterAsAuthorizedChatUser(t *testing.T) {
 	}
 }
 
+func TestCheerParserIgnoresRealChatPayloadBeforeEventDecode(t *testing.T) {
+	payload := []byte(`{"metadata":{"message_id":"delivery-real","message_type":"notification","subscription_type":"channel.chat.message"},"payload":{"event":{"broadcaster_user_id":"52588311","chatter_user_id":"52588311","chatter_user_login":"uwogoob","message_id":"real-chat-1","message":{"text":"!testbanner VIP 💚","fragments":[]}}}}`)
+	if _, ok, err := ParseNotification(payload); err != nil || ok {
+		t.Fatalf("cheer parser must ignore chat payload without decoding chat event: ok=%v err=%v", ok, err)
+	}
+	env, ok, err := ParseChatCommand(payload, "52588311")
+	if err != nil || !ok || env.Cheer.Message != "VIP 💚" {
+		t.Fatalf("real chat payload not accepted by chat parser: env=%#v ok=%v err=%v", env, ok, err)
+	}
+}
+
 func TestParseBroadcasterTestBannerCommand(t *testing.T) {
 	payload := map[string]any{
 		"metadata": map[string]any{"message_id": "delivery-1", "message_type": "notification", "subscription_type": "channel.chat.message"},
