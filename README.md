@@ -68,6 +68,12 @@ sudo ./scripts/install.sh
 
 See [Appliance/README.md](Appliance/README.md) for installation, firewall setup, security limits, iPhone use, diagnostics, vehicle considerations, and integration tests.
 
+### Twitch cheer banners
+
+The appliance can optionally print a single qualifying Twitch cheer as a maximized one-to-three-line banner. A broadcaster-only `!testbanner` chat command exercises the same real EventSub, sanitization, deduplication, layout, CUPS, and printer path without spending Bits. The integration uses outbound EventSub WebSockets, pins authorization to an immutable Twitch user ID, runs as an unprivileged hardened systemd service, and never retries an ambiguous physical print.
+
+See [Appliance/TWITCH_BANNER.md](Appliance/TWITCH_BANNER.md) for installation, least-privilege OAuth, threat model, exactly-once boundary, operations, rollback, removal, and verification.
+
 ## Build and test
 
 ```bash

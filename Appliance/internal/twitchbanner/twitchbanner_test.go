@@ -19,7 +19,7 @@ func TestAuthorizationURLUsesExactRedirectAndScope(t *testing.T) {
 	if err != nil || state == "" {
 		t.Fatalf("url/state: %q %v", state, err)
 	}
-	if !strings.Contains(u, "client_id=client-id") || !strings.Contains(u, "redirect_uri=http%3A%2F%2Flocalhost%3A17563%2Ftwitch%2Fcallback") || !strings.Contains(u, "scope=bits%3Aread") || !strings.Contains(u, "response_type=code") {
+	if !strings.Contains(u, "client_id=client-id") || !strings.Contains(u, "redirect_uri=http%3A%2F%2Flocalhost%3A17563%2Ftwitch%2Fcallback") || !strings.Contains(u, "scope=bits%3Aread+user%3Aread%3Achat") || !strings.Contains(u, "response_type=code") {
 		t.Fatalf("authorization URL missing contract: %s", u)
 	}
 }
@@ -43,6 +43,66 @@ func TestSubscribeCheerUsesSessionAndBroadcaster(t *testing.T) {
 	transport := got["transport"].(map[string]any)
 	if gotPath != "/helix/eventsub/subscriptions" || gotAuth != "Bearer token" || gotClient != "cid" || got["type"] != "channel.cheer" || got["version"] != "1" || cond["broadcaster_user_id"] != "broadcaster" || transport["method"] != "websocket" || transport["session_id"] != "session-123" {
 		t.Fatalf("bad subscription request path=%s body=%#v", gotPath, got)
+	}
+}
+
+func TestSubscribeChatUsesBroadcasterAsAuthorizedChatUser(t *testing.T) {
+	var got map[string]any
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.SubscribeChat(context.Background(), "52588311", "session-123"); err != nil {
+		t.Fatal(err)
+	}
+	cond := got["condition"].(map[string]any)
+	if got["type"] != "channel.chat.message" || cond["broadcaster_user_id"] != "52588311" || cond["user_id"] != "52588311" {
+		t.Fatalf("bad chat subscription: %#v", got)
+	}
+}
+
+func TestCheerParserIgnoresRealChatPayloadBeforeEventDecode(t *testing.T) {
+	payload := []byte(`{"metadata":{"message_id":"delivery-real","message_type":"notification","subscription_type":"channel.chat.message"},"payload":{"event":{"broadcaster_user_id":"52588311","chatter_user_id":"52588311","chatter_user_login":"uwogoob","message_id":"real-chat-1","message":{"text":"!testbanner VIP 💚","fragments":[]}}}}`)
+	if _, ok, err := ParseNotification(payload); err != nil || ok {
+		t.Fatalf("cheer parser must ignore chat payload without decoding chat event: ok=%v err=%v", ok, err)
+	}
+	env, ok, err := ParseChatCommand(payload, "52588311")
+	if err != nil || !ok || env.Cheer.Message != "VIP 💚" {
+		t.Fatalf("real chat payload not accepted by chat parser: env=%#v ok=%v err=%v", env, ok, err)
+	}
+}
+
+func TestParseBroadcasterTestBannerCommand(t *testing.T) {
+	payload := map[string]any{
+		"metadata": map[string]any{"message_id": "delivery-1", "message_type": "notification", "subscription_type": "channel.chat.message"},
+		"payload":  map[string]any{"event": map[string]any{"broadcaster_user_id": "52588311", "chatter_user_id": "52588311", "chatter_user_login": "uwogoob", "message_id": "chat-message-1", "message": map[string]any{"text": "!testbanner THIS IS REAL CHAT"}}},
+	}
+	data, _ := json.Marshal(payload)
+	env, ok, err := ParseChatCommand(data, "52588311")
+	if err != nil || !ok {
+		t.Fatalf("parse: ok=%v err=%v", ok, err)
+	}
+	if env.MessageID != "chat:chat-message-1" || env.Cheer.Bits != 1000 || env.Cheer.Message != "THIS IS REAL CHAT" || env.Cheer.UserName != "uwogoob" {
+		t.Fatalf("unexpected envelope: %#v", env)
+	}
+	payload["payload"].(map[string]any)["event"].(map[string]any)["chatter_user_id"] = "other-user"
+	data, _ = json.Marshal(payload)
+	if _, ok, err := ParseChatCommand(data, "52588311"); err != nil || ok {
+		t.Fatalf("other user accepted: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestParseChatIgnoresNonCommandAndEmptyCommand(t *testing.T) {
+	for _, text := range []string{"ordinary message", "!testbanner", "!testbanner   ", "x!testbanner nope"} {
+		payload := map[string]any{"metadata": map[string]any{"message_type": "notification", "subscription_type": "channel.chat.message"}, "payload": map[string]any{"event": map[string]any{"broadcaster_user_id": "52588311", "chatter_user_id": "52588311", "message_id": "m1", "message": map[string]any{"text": text}}}}
+		data, _ := json.Marshal(payload)
+		if _, ok, err := ParseChatCommand(data, "52588311"); err != nil || ok {
+			t.Fatalf("text %q accepted: ok=%v err=%v", text, ok, err)
+		}
 	}
 }
 
@@ -154,17 +214,18 @@ func TestJournalFailsClosedOnMalformedRecord(t *testing.T) {
 	}
 }
 
-func TestValidateIdentityRequiresClientBroadcasterAndBitsScope(t *testing.T) {
-	good := TokenIdentity{ClientID: "cid", Login: "uwogoob", Scopes: []string{"bits:read"}}
-	if err := good.Validate("cid", "uwogoob"); err != nil {
+func TestValidateIdentityRequiresClientBroadcasterBitsAndChatScopes(t *testing.T) {
+	good := TokenIdentity{ClientID: "cid", Login: "uwogoob", UserID: "52588311", Scopes: []string{"bits:read", "user:read:chat"}}
+	if err := good.Validate("cid", "uwogoob", "52588311"); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []TokenIdentity{
-		{ClientID: "wrong", Login: "uwogoob", Scopes: []string{"bits:read"}},
-		{ClientID: "cid", Login: "other", Scopes: []string{"bits:read"}},
-		{ClientID: "cid", Login: "uwogoob", Scopes: []string{"chat:read"}},
+		{ClientID: "wrong", Login: "uwogoob", UserID: "52588311", Scopes: []string{"bits:read", "user:read:chat"}},
+		{ClientID: "cid", Login: "other", UserID: "52588311", Scopes: []string{"bits:read", "user:read:chat"}},
+		{ClientID: "cid", Login: "uwogoob", UserID: "wrong", Scopes: []string{"bits:read", "user:read:chat"}},
+		{ClientID: "cid", Login: "uwogoob", UserID: "52588311", Scopes: []string{"bits:read"}},
 	} {
-		if err := bad.Validate("cid", "uwogoob"); err == nil {
+		if err := bad.Validate("cid", "uwogoob", "52588311"); err == nil {
 			t.Fatalf("accepted invalid identity: %#v", bad)
 		}
 	}

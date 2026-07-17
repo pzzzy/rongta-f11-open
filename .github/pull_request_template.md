@@ -4,8 +4,8 @@ Describe the change and its interoperability evidence.
 
 ## Validation
 
-- [ ] `swift run F11CoreTests`
-- [ ] `swift build -c release`
+- [ ] Applicable Swift tests/build pass (`swift run F11CoreTests`, `swift build -c release`)
+- [ ] Applicable appliance tests/vet pass (`cd Appliance && go test ./... && go vet ./...`)
 - [ ] No proprietary files or private captures added
 - [ ] Synthetic tests added or updated
 - [ ] No physical printer required by automated tests
