@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+[[ ${EUID:-$(id -u)} -eq 0 ]] || { echo 'Run with sudo.' >&2; exit 2; }
+[[ -r /etc/twitch-banner/environment ]] || { echo 'Missing protected environment file.' >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091
+. /etc/twitch-banner/environment
+set +a
+runuser -u twitch-banner --preserve-environment -- /usr/local/bin/twitch-banner authorize
+TOKEN=${TWITCH_TOKEN_FILE:-/var/lib/twitch-banner/token.json}
+chown twitch-banner:twitch-banner "$TOKEN"
+chmod 0600 "$TOKEN"
+test "$(stat -c %U:%G "$TOKEN")" = twitch-banner:twitch-banner
+test "$(stat -c %a "$TOKEN")" = 600
+printf 'Authorization token installed for twitch-banner.\n'
+printf 'Start with: sudo systemctl start twitch-banner.service\n'
