@@ -22,20 +22,27 @@ printf '\n' >/dev/tty
 BUILD=$(mktemp -d /root/twitch-banner-install.XXXXXX)
 trap 'rm -rf "$BUILD"; unset CLIENT_SECRET' EXIT
 cd "$ROOT"
-go test ./internal/twitchbanner ./cmd/twitch-banner
-go vet ./internal/twitchbanner ./cmd/twitch-banner
+go test ./internal/twitchbanner ./internal/twitchgift ./internal/giftpage ./cmd/twitch-banner ./cmd/giftprint
+go vet ./internal/twitchbanner ./internal/twitchgift ./internal/giftpage ./cmd/twitch-banner ./cmd/giftprint
 MACHINE=$(uname -m)
 if [[ $MACHINE == armv6l ]]; then
   CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags='-s -w' -o "$BUILD/twitch-banner" ./cmd/twitch-banner
+  CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags='-s -w' -o "$BUILD/giftprint" ./cmd/giftprint
+  CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags='-s -w' -o "$BUILD/raidprint" ./cmd/raidprint
 else
   CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD/twitch-banner" ./cmd/twitch-banner
+  CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD/giftprint" ./cmd/giftprint
+  CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD/raidprint" ./cmd/raidprint
 fi
+file "$BUILD/raidprint" | grep -Eq 'ARM|aarch64|x86-64' || { echo 'Unexpected raidprint architecture.' >&2; exit 1; }
 file "$BUILD/twitch-banner" | grep -Eq 'ARM|aarch64|x86-64' || { echo 'Unexpected twitch-banner architecture.' >&2; exit 1; }
 id -u twitch-banner >/dev/null 2>&1 || useradd --system --home-dir /var/lib/twitch-banner --create-home --shell /usr/sbin/nologin twitch-banner
 usermod -aG lp twitch-banner
 install -d -o root -g twitch-banner -m0750 /etc/twitch-banner
 install -d -o twitch-banner -g twitch-banner -m0700 /var/lib/twitch-banner
 install -o root -g root -m0755 "$BUILD/twitch-banner" /usr/local/bin/twitch-banner
+install -o root -g root -m0755 "$BUILD/giftprint" /usr/local/bin/giftprint
+install -o root -g root -m0755 "$BUILD/raidprint" /usr/local/bin/raidprint
 ENV_NEW=$(mktemp /etc/twitch-banner/environment.new.XXXXXX)
 {
   printf 'TWITCH_CLIENT_ID=%s\n' "$CLIENT_ID"

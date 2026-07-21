@@ -1,5 +1,5 @@
 [Unit]
-Description=Twitch 1000-Bit F11 banner printer
+Description=Twitch F11 cheer banner and gift-sub celebration printer
 After=network-online.target cups.service
 Wants=network-online.target
 Requires=cups.service

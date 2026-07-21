@@ -12,11 +12,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/twitchbanner"
+	"github.com/pzzzy/rongta-f11-open/appliance/internal/twitchgift"
+	"github.com/pzzzy/rongta-f11-open/appliance/internal/twitchraid"
 )
 
 const redirectURI = "http://localhost:17563/twitch/callback"
@@ -170,7 +173,80 @@ func dialWelcome(ctx context.Context, target string) (*websocket.Conn, welcome, 
 	return conn, w, nil
 }
 
-func runConnection(ctx context.Context, c config, p twitchbanner.Processor) error {
+func processGift(ctx context.Context, p twitchgift.Processor, gift twitchgift.Celebration) {
+	result, err := p.Process(ctx, gift)
+	if err != nil {
+		log.Printf("gift=%s error=%v", gift.CommunityID, err)
+		return
+	}
+	if result.Duplicate {
+		log.Printf("gift=%s duplicate ignored", gift.CommunityID)
+	} else if result.Submitted {
+		log.Printf("gift=%s total=%d named=%d missing=%d job=%s", gift.CommunityID, gift.Total, len(gift.Recipients), gift.Missing, result.JobID)
+	}
+}
+
+type socketRead struct {
+	data []byte
+	err  error
+}
+
+type socketReader struct {
+	conn   *websocket.Conn
+	reads  <-chan socketRead
+	cancel context.CancelFunc
+	done   <-chan struct{}
+	once   sync.Once
+}
+
+func startSocketReader(parent context.Context, conn *websocket.Conn) *socketReader {
+	ctx, cancel := context.WithCancel(parent)
+	reads := make(chan socketRead)
+	done := make(chan struct{})
+	r := &socketReader{conn: conn, reads: reads, cancel: cancel, done: done}
+	go func() {
+		defer close(done)
+		defer close(reads)
+		for {
+			if err := conn.SetReadDeadline(time.Now().Add(45 * time.Second)); err != nil {
+				select {
+				case reads <- socketRead{err: err}:
+				case <-ctx.Done():
+				}
+				return
+			}
+			_, data, err := conn.ReadMessage()
+			select {
+			case reads <- socketRead{data: data, err: err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return r
+}
+
+func (r *socketReader) stop() {
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		r.cancel()
+		_ = r.conn.Close()
+		<-r.done
+	})
+}
+
+func flushGifts(ctx context.Context, collector *twitchgift.Collector, gifts twitchgift.Processor, now time.Time) {
+	for _, gift := range collector.FlushDue(now) {
+		processGift(ctx, gifts, gift)
+	}
+}
+
+func runConnection(ctx context.Context, c config, p twitchbanner.Processor, gifts twitchgift.Processor, raids twitchraid.Processor, collector *twitchgift.Collector) error {
 	tok, err := freshToken(ctx, c)
 	if err != nil {
 		return err
@@ -188,24 +264,45 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 	if err != nil {
 		return err
 	}
-	defer func() { _ = conn.Close() }()
 	if err = api.SubscribeCheer(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
 		return err
 	}
 	if err = api.SubscribeChat(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
 		return err
 	}
-	log.Printf("subscribed channel=%s broadcaster_id=%s events=channel.cheer,channel.chat.message", c.Channel, broadcaster)
+	if err = api.SubscribeChatNotifications(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	if err = api.SubscribeRaid(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	log.Printf("subscribed channel=%s broadcaster_id=%s events=channel.cheer,channel.chat.message,channel.chat.notification,channel.raid", c.Channel, broadcaster)
+	reader := startSocketReader(ctx, conn)
+	defer func() { reader.stop() }()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		if err = conn.SetReadDeadline(time.Now().Add(45 * time.Second)); err != nil {
-			return err
-		}
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
+		var data []byte
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case now := <-ticker.C:
+			for _, gift := range collector.FlushDue(now) {
+				processGift(ctx, gifts, gift)
+			}
+			continue
+		case read, open := <-reader.reads:
+			if !open {
+				return errors.New("Twitch socket reader closed")
+			}
+			if read.err != nil {
+				return read.err
+			}
+			data = read.data
 		}
 		var meta struct {
 			Metadata struct {
@@ -230,13 +327,50 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 			if handoffErr != nil {
 				return fmt.Errorf("Twitch reconnect handoff failed: %w", handoffErr)
 			}
-			oldConn := conn
+			oldReader := reader
 			conn = newConn
-			_ = oldConn.Close()
+			reader = startSocketReader(ctx, conn)
+			oldReader.stop()
 			log.Printf("EventSub reconnect handoff complete")
 			continue
 		case "revocation":
 			return errors.New("Twitch revoked EventSub subscription")
+		}
+		raidEvent, raidOK, raidErr := twitchraid.ParseNotification(data, broadcaster)
+		if raidErr != nil {
+			log.Printf("invalid raid notification: %v", raidErr)
+			continue
+		}
+		if raidOK {
+			result, processErr := raids.Process(ctx, raidEvent)
+			if processErr != nil {
+				log.Printf("event=%s error=%v", raidEvent.MessageID, processErr)
+			} else if result.Duplicate {
+				log.Printf("event=%s duplicate raid ignored", raidEvent.MessageID)
+			} else if result.Submitted {
+				log.Printf("event=%s raid channel=%q viewers=%d job=%s", raidEvent.MessageID, raidEvent.Channel, raidEvent.Viewers, result.JobID)
+			}
+			continue
+		}
+		giftEvent, giftOK, giftErr := twitchgift.ParseNotification(data, broadcaster)
+		if giftErr != nil {
+			log.Printf("invalid gift notification: %v", giftErr)
+			continue
+		}
+		if giftOK {
+			for _, gift := range collector.Accept(giftEvent, time.Now()) {
+				processGift(ctx, gifts, gift)
+			}
+			continue
+		}
+		giftTest, testOK, testErr := twitchgift.ParseTestNotification(data, broadcaster)
+		if testErr != nil {
+			log.Printf("invalid gift test command: %v", testErr)
+			continue
+		}
+		if testOK {
+			processGift(ctx, gifts, giftTest)
+			continue
 		}
 		env, ok, parseErr := twitchbanner.ParseNotification(data)
 		if parseErr != nil {
@@ -269,30 +403,56 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor) erro
 }
 
 func run(ctx context.Context, c config) error {
+	if info, err := os.Stat("/usr/local/bin/bannerprint"); err != nil || info.Mode()&0111 == 0 {
+		return errors.New("bannerprint is missing or not executable")
+	}
+	if info, err := os.Stat("/usr/local/bin/giftprint"); err != nil || info.Mode()&0111 == 0 {
+		return errors.New("giftprint is missing or not executable")
+	}
+	if info, err := os.Stat("/usr/local/bin/raidprint"); err != nil || info.Mode()&0111 == 0 {
+		return errors.New("raidprint is missing or not executable")
+	}
 	j, err := twitchbanner.OpenJournal(c.JournalFile)
 	if err != nil {
 		return err
 	}
 	p := twitchbanner.Processor{Journal: j, Printer: twitchbanner.BannerPrinter{Binary: "/usr/local/bin/bannerprint", Queue: c.Queue}}
+	gifts := twitchgift.Processor{Journal: j, Printer: twitchgift.GiftPrinter{Binary: "/usr/local/bin/giftprint", Queue: c.Queue}}
+	raids := twitchraid.Processor{Journal: j, Printer: twitchraid.Printer{Binary: "/usr/local/bin/raidprint", Queue: c.Queue}}
+	collector := twitchgift.NewCollector(12 * time.Second)
 	backoff := time.Second
 	for {
-		if err := runConnection(ctx, c, p); err != nil {
+		if err := runConnection(ctx, c, p, gifts, raids, collector); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			log.Printf("connection ended: %v; reconnecting in %s", err, backoff)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
+		jitter := time.Duration(0)
+		var b [1]byte
+		if _, err := rand.Read(b[:]); err == nil {
+			jitter = time.Duration(b[0]%4) * time.Second
 		}
+		wait := backoff + jitter
+		ticker := time.NewTicker(250 * time.Millisecond)
+		timer := time.NewTimer(wait)
+		waiting := true
+		for waiting {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				timer.Stop()
+				return ctx.Err()
+			case now := <-ticker.C:
+				flushGifts(ctx, collector, gifts, now)
+			case <-timer.C:
+				waiting = false
+			}
+		}
+		ticker.Stop()
 		if backoff < time.Minute {
 			backoff *= 2
 		}
-		var b [1]byte
-		_, _ = rand.Read(b[:])
-		time.Sleep(time.Duration(b[0]%4) * time.Second)
 	}
 }
 

@@ -1,4 +1,4 @@
-# Twitch Cheer and Chat-Test Banner Printer
+# Twitch Cheer Banner, Raid Receipt, and Gift-Sub Celebration Printer
 
 The optional `twitch-banner` service turns qualifying Twitch events into large F11 thermal banners. It uses Twitch EventSub WebSockets, so it does not require a public webhook, inbound firewall rule, or port forwarding.
 
@@ -8,6 +8,9 @@ Production behavior:
 - Smaller cheers are not accumulated.
 - The cheer message is maximized automatically across one to three lines.
 - An empty qualifying cheer prints `THANK YOU <user>` (or `THANK YOU ANONYMOUS`).
+- A community gift of 10 or more subscriptions prints one native 8.5 × 11-inch celebration page.
+- The gift page prominently shows the gift count and gifter, then lists up to 24 correlated recipients.
+- Recipient names are correlated from Twitch's `community_sub_gift.id` to each `sub_gift.community_gift_id`.
 
 Broadcaster-only end-to-end testing:
 
@@ -17,10 +20,18 @@ Broadcaster-only end-to-end testing:
 
 The test command is a real `channel.chat.message` event and follows the same sanitization, durable deduplication, FIFO processing, layout, CUPS submission, and no-retry policy as a paid cheer. It requires an exact immutable Twitch user-ID match to `TWITCH_BROADCASTER_ID`; matching a login/display name, moderator status, or channel role is not sufficient.
 
+The owner can also exercise the complete letter-page path without buying subscriptions:
+
+```text
+!testgift Gifter Name | Giftee One, Giftee Two, Giftee Three, Giftee Four, Giftee Five, Giftee Six, Giftee Seven, Giftee Eight, Giftee Nine, Giftee Ten
+```
+
+The command requires a gifter, a pipe separator, and 10–100 distinct comma-separated test recipients. It is accepted only from the account whose immutable ID equals `TWITCH_BROADCASTER_ID`.
+
 ## Requirements
 
 - The Linux/Raspberry Pi appliance installed and passing its F11 runtime check.
-- `/usr/local/bin/bannerprint` and a serial-pinned F11 CUPS queue.
+- `/usr/local/bin/bannerprint`, `/usr/local/bin/giftprint`, `/usr/local/bin/raidprint`, and a serial-pinned F11 CUPS queue.
 - A Twitch application configured with this exact OAuth redirect URI:
 
 ```text
@@ -48,7 +59,7 @@ The installer:
 
 - verifies `bannerprint`, the configured CUPS queue, and the attached F11;
 - runs Go tests and vet;
-- builds a native static binary (including `GOARM=6` on ARMv6);
+- builds native static `twitch-banner` and `giftprint` binaries (including `GOARM=6` on ARMv6);
 - creates the unprivileged `twitch-banner` service account;
 - writes `/etc/twitch-banner/environment` as `root:twitch-banner` mode `0640`;
 - creates private state under `/var/lib/twitch-banner/`;
@@ -89,10 +100,10 @@ sudo systemctl status twitch-banner.service
 sudo journalctl -u twitch-banner.service -n 50 --no-pager
 ```
 
-A healthy startup includes both subscription types:
+A healthy startup includes all four subscription types:
 
 ```text
-events=channel.cheer,channel.chat.message
+events=channel.cheer,channel.chat.message,channel.chat.notification,channel.raid
 ```
 
 ## Message handling
@@ -104,13 +115,36 @@ events=channel.cheer,channel.chat.message
 - Only the account whose immutable ID equals `TWITCH_BROADCASTER_ID` can invoke `!testbanner`.
 - Ordinary chat messages are ignored.
 
+## Raid celebration receipts
+
+- The service subscribes to Twitch EventSub `channel.raid` using the pinned target condition `to_broadcaster_user_id=TWITCH_BROADCASTER_ID`.
+- Incoming raids are accepted only when the target is the configured broadcaster and the source broadcaster is different from the target.
+- The receipt puts `RAID INCOMING`, the raiding channel name, and the formatted viewer count at the center of a native 1,664 × 2,233-dot letter-length page.
+- The raiding channel name is limited to printable ASCII supported by the embedded font; unsupported display names fall back to Twitch's login when available.
+- Each notification is deduplicated as `raid:<EventSub message_id>` before the single physical `raidprint` submission.
+- Raid output uses a dedicated structured renderer and never passes raid text through the short-banner layout.
+
+## Gift-sub celebration handling
+
+- `channel.chat.notification` supplies the aggregate `community_sub_gift` notice and each correlated `sub_gift` recipient.
+- Only aggregate gifts with `total >= 10` qualify; separate smaller gifts are never accumulated.
+- Recipient identity is deduplicated by immutable Twitch recipient user ID, not display name.
+- The service collects correlated names for up to 12 seconds. It prints immediately if all names arrive.
+- Pending collection survives ordinary EventSub disconnect/reconnect attempts while the daemon remains running, and due gifts continue to flush during reconnect backoff.
+- Pending, not-yet-reserved collection is intentionally in memory and does not survive a daemon/process restart. Twitch redelivery may reconstruct it; otherwise that celebration can be missed rather than risk duplicate paper.
+- If Twitch omits or delays names, the page honestly lists the names received and adds `+ N MORE`; it never invents recipients.
+- Anonymous gifts display `ANONYMOUS` as the gifter.
+- The native page is 1,664 × 2,233 dots: the F11's full 8.20-inch printable head width by exactly 11 inches at 203 dpi, centered on letter-width media, with a maximum of 24 displayed names.
+- `giftprint` validates the encoded stream by decoding it and comparing every raster row before CUPS submission.
+- Unsupported name characters are normalized. Long gifter and recipient names are automatically fitted within bounded regions.
+
 ## Exactly-once boundary
 
 Twitch may redeliver events. The service handles them conservatively:
 
 1. Qualifying event IDs are durably appended as `reserved` before printing.
 2. Reserved IDs are considered consumed across restarts.
-3. One serial worker invokes `bannerprint --lines auto` once.
+3. One serial event loop invokes `bannerprint --lines auto`, structured `giftprint`, or structured `raidprint` once.
 4. A successful CUPS submission is appended as `submitted` with its job ID.
 5. The service never automatically retries after reservation, including ambiguous failures.
 
@@ -126,9 +160,9 @@ The journal is `/var/lib/twitch-banner/events.jsonl`. Any malformed or empty rec
 - Secrets are excluded from command arguments and logs.
 - The daemon runs as `twitch-banner`, not root.
 - systemd enables `NoNewPrivileges`, private devices, strict filesystem protection, restricted address families, syscall filtering, and a private writable state directory.
-- The daemon accesses printing only through `bannerprint` and the configured CUPS queue.
+- The daemon accesses printing only through the three validated local print executables and the configured CUPS queue.
 
-Treat anyone able to modify `/etc/twitch-banner/environment`, `/usr/local/bin/twitch-banner`, the systemd unit, or the private token/journal as a trusted appliance administrator.
+Treat anyone able to modify `/etc/twitch-banner/environment`, `/usr/local/bin/twitch-banner`, `/usr/local/bin/bannerprint`, `/usr/local/bin/giftprint`, `/usr/local/bin/raidprint`, the systemd unit, or the private token/journal as a trusted appliance administrator.
 
 ## Operations
 
@@ -144,6 +178,8 @@ Before an upgrade, stop the service and make a root-only backup of:
 
 ```text
 /usr/local/bin/twitch-banner
+/usr/local/bin/giftprint
+/usr/local/bin/raidprint
 /etc/twitch-banner/environment
 /var/lib/twitch-banner/token.json
 /var/lib/twitch-banner/events.jsonl
@@ -159,7 +195,7 @@ Disable without deleting credentials/state:
 sudo systemctl disable --now twitch-banner.service
 ```
 
-For full removal, disable the service, then remove the unit, binary, helper, protected environment, and private state only after making any required audit backup. OAuth tokens should also be revoked through Twitch account connections or the Twitch token-revocation endpoint.
+For full removal, disable the service, then remove the unit and all three binaries (`twitch-banner`, `giftprint`, and `raidprint`), helper, protected environment, and private state only after making any required audit backup. OAuth tokens should also be revoked through Twitch account connections or the Twitch token-revocation endpoint.
 
 ## Development and verification
 
@@ -167,13 +203,15 @@ From `Appliance/`:
 
 ```sh
 go test -count=1 ./...
-go test -race -count=1 ./internal/twitchbanner ./cmd/twitch-banner
+go test -race -count=1 ./internal/twitchbanner ./internal/twitchgift ./internal/giftpage ./internal/twitchraid ./internal/raidpage ./cmd/giftprint ./cmd/raidprint ./cmd/twitch-banner
 go vet ./...
 bash -n scripts/install-twitch-banner.sh scripts/twitch-banner-authorize
 python3 Tests/twitch-banner-architecture.py
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build ./cmd/twitch-banner
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build ./cmd/giftprint
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build ./cmd/raidprint
 ```
 
-Tests include threshold/fallback handling, sanitization bounds, OAuth state and identity enforcement, immutable broadcaster pinning, subscription request shape, real Twitch chat payload routing, durable reservation, restart deduplication, corrupt-journal fail-closed behavior, and one-invocation banner submission.
+Tests include cheer and gift thresholds, gift correlation, recipient-ID deduplication, out-of-order and timed-out recipient collection, owner-only command parsing, letter-page geometry/coverage/overflow, stream round-trip equality, OAuth state and identity enforcement, immutable broadcaster pinning, subscription request shape, real Twitch payload routing, durable reservation, restart deduplication, corrupt-journal fail-closed behavior, and one-invocation physical submission.
 
 For responsible disclosure, see the repository's [`SECURITY.md`](../SECURITY.md). Contributions follow [`CONTRIBUTING.md`](../CONTRIBUTING.md) and the MIT license.
