@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+import json,re,sys
+marker='/var/lib/twitch-banner/eventsub-ready.json'; env='/etc/twitch-banner/environment'
+with open(env) as f:
+ values=dict(line.rstrip('\n').split('=',1) for line in f if '=' in line and not line.startswith('#'))
+expected=values.get('TWITCH_BROADCASTER_ID','')
+if not re.fullmatch(r'[0-9]{1,20}',expected): raise SystemExit('invalid configured broadcaster')
+with open(marker) as f: ready=json.load(f)
+if set(ready)!= {'broadcaster_id','subscriptions','ready_at'}: raise SystemExit('invalid readiness schema')
+required=['channel.cheer','channel.chat.message','channel.chat.notification','channel.raid']
+if ready['broadcaster_id'] != expected or ready['subscriptions'] != required: raise SystemExit('EventSub not ready')
+print('EventSub subscriptions ready')

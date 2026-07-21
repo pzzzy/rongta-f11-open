@@ -8,6 +8,7 @@ User=f11print
 Group=f11print
 SupplementaryGroups=lp
 ExecStart=/usr/local/lib/f11/f11-health
+Environment=F11_QUEUE=Rongta_F11_Media
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

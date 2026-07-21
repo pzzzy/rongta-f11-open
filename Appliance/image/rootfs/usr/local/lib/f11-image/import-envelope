@@ -1,0 +1,28 @@
+#!/usr/bin/python3
+import json,os,re,subprocess,sys
+p=sys.argv[1]; state='/var/lib/f11-setup'
+with open(p) as f: c=json.load(f)
+allowed={'schema','device_id','setup_code','ap_password','device','wifi','ssh_authorized_key'}
+if set(c)-allowed or c.get('schema')!=1: raise SystemExit('invalid personalization schema')
+if not re.fullmatch(r'[a-f0-9]{12}',c.get('device_id','')): raise SystemExit('invalid device id')
+if not re.fullmatch(r'[A-Z2-9]{10}',c.get('setup_code','')): raise SystemExit('invalid setup code')
+if len(c.get('ap_password',''))!=16: raise SystemExit('invalid AP password')
+os.makedirs(state,mode=0o700,exist_ok=True)
+for n,k in [('device-id','device_id'),('setup-code','setup_code'),('ap-password','ap_password')]:
+ fd=os.open(f'{state}/{n}',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600); os.write(fd,c[k].encode()); os.close(fd)
+d=c.get('device',{}); host=d.get('hostname','f11-setup')
+if set(d)-{'hostname','country','timezone'} or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',host): raise SystemExit('invalid device settings')
+subprocess.run(['hostnamectl','set-hostname',host],check=True)
+if d.get('timezone'): subprocess.run(['timedatectl','set-timezone',d['timezone']],check=True)
+w=c.get('wifi',{})
+if w:
+ if set(w)-{'ssid','password'} or not 1<=len(w.get('ssid','').encode())<=32 or not 8<=len(w.get('password',''))<=63: raise SystemExit('invalid wifi settings')
+ subprocess.run(['nmcli','connection','delete','f11-home'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','add','type','wifi','ifname','wlan0','con-name','f11-home','ssid',w['ssid']],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','modify','f11-home','wifi-sec.key-mgmt','wpa-psk','wifi-sec.psk',w['password'],'connection.autoconnect','yes','connection.autoconnect-priority','100'],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','up','f11-home'],check=True,stdout=subprocess.DEVNULL)
+key=c.get('ssh_authorized_key','')
+if key:
+ if not re.fullmatch(r'(ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: .*)?',key): raise SystemExit('invalid SSH key')
+ os.makedirs('/root/.ssh',mode=0o700,exist_ok=True); open('/root/.ssh/authorized_keys','w').write(key+'\n'); os.chmod('/root/.ssh/authorized_keys',0o600); subprocess.run(['systemctl','enable','ssh.service'],check=True)
+print('personalization imported')

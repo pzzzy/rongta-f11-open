@@ -4,14 +4,16 @@ export LC_ALL=C
 umask 022
 [[ ${EUID:-$(id -u)} -eq 0 ]] || { echo 'Run with sudo.' >&2; exit 2; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+F11_QUEUE=${F11_QUEUE:-Rongta_F11_Media}
+[[ $F11_QUEUE =~ ^Rongta_F11[A-Za-z0-9_.-]{0,115}$ ]] || { echo 'Invalid F11_QUEUE.' >&2; exit 2; }
 BUILD_DIR=$(mktemp -d /tmp/f11-install.XXXXXX)
 NFT_TMP=
 MIGRATION_MARKER=/var/lib/f11/migration-in-progress
 MIGRATION_ACTIVE=0
 cleanup() {
   if [[ $MIGRATION_ACTIVE -eq 1 ]]; then
-    cupsdisable Rongta_F11 >/dev/null 2>&1 || true
-    cupsreject Rongta_F11 >/dev/null 2>&1 || true
+    cupsdisable "$F11_QUEUE" >/dev/null 2>&1 || true
+    cupsreject "$F11_QUEUE" >/dev/null 2>&1 || true
     install -o root -g root -m0755 "$ROOT/cups/f11-migration-hold" /usr/lib/cups/backend/f11 2>/dev/null || true
     echo 'F11 migration stopped safely with the queue disabled. Fix the reported error and rerun the installer.' >&2
   fi
@@ -92,30 +94,30 @@ fi
 systemctl daemon-reload
 systemctl enable --now cups avahi-daemon
 systemctl enable f11-health.service
-CURRENT_QUEUE=$(lpstat -v Rongta_F11 2>/dev/null || true)
+CURRENT_QUEUE=$(lpstat -v "$F11_QUEUE" 2>/dev/null || true)
 F11_USB_URI=$(/usr/lib/cups/backend/usb 2>/dev/null | /usr/local/lib/f11/plan-queue-migration "$CURRENT_QUEUE")
 MIGRATION_ACTIVE=1
 printf 'target=%s\nstarted=%s\n' "$F11_USB_URI" "$(date -u +%FT%TZ)" >"$MIGRATION_MARKER"
-if lpstat -v Rongta_F11 >/dev/null 2>&1; then
-  cupsdisable Rongta_F11
-  cupsreject Rongta_F11
-  cancel -a Rongta_F11
+if lpstat -v "$F11_QUEUE" >/dev/null 2>&1; then
+  cupsdisable "$F11_QUEUE"
+  cupsreject "$F11_QUEUE"
+  cancel -a "$F11_QUEUE"
 fi
-lpadmin -p Rongta_F11 -v "$F11_USB_URI" -P /usr/share/ppd/f11.ppd -D 'Rongta F11 Pi AirPrint' -L "$(hostname)" -o printer-is-shared=true -o usb-unidir=true
-lpadmin -d Rongta_F11
+lpadmin -p "$F11_QUEUE" -v "$F11_USB_URI" -P /usr/share/ppd/f11.ppd -D 'Rongta F11 Pi AirPrint' -L "$(hostname)" -o printer-is-shared=true -o usb-unidir=true
+lpadmin -d "$F11_QUEUE"
 sudo -u f11print /usr/local/lib/f11/f11d self-test
 cupstestppd -W all /usr/share/ppd/f11.ppd >/dev/null
 /usr/lib/cups/backend/usb 2>/dev/null | grep -Fq "$F11_USB_URI"
-lpstat -v Rongta_F11 | grep -Fq "$F11_USB_URI"
+lpstat -v "$F11_QUEUE" | grep -Fq "$F11_USB_URI"
 rm -f /usr/lib/cups/backend/f11
 systemctl restart cups avahi-daemon
-cupsaccept Rongta_F11
-cupsenable Rongta_F11
+cupsaccept "$F11_QUEUE"
+cupsenable "$F11_QUEUE"
 systemctl start f11-health.service
 rm -f "$MIGRATION_MARKER"
 MIGRATION_ACTIVE=0
 cat <<EOF
 Installed Rongta F11 Pi AirPrint.
-Printer URI: ipp://$(hostname).local:631/printers/Rongta_F11
+Printer URI: ipp://$(hostname).local:631/printers/$F11_QUEUE
 If clients cannot connect, allow LAN TCP 631 and UDP 5353 or rerun with --configure-nftables.
 EOF

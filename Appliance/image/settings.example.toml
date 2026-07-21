@@ -1,0 +1,28 @@
+# Copy to settings.toml for a private preconfigured build.
+# settings.toml is gitignored and must never be included in a public image.
+
+[device]
+hostname = "f11-setup"
+country = "US"
+timezone = "America/New_York"
+locale = "en_US.UTF-8"
+
+[wifi]
+# Leave blank to use the private first-boot setup access point.
+ssid = ""
+password = ""
+hidden = false
+
+[access]
+# SSH remains disabled unless explicitly enabled.
+enable_ssh = false
+# Optional SSH public key only. Password login is never enabled by this factory.
+ssh_authorized_key = ""
+
+[setup]
+# If true, stop the fallback AP after verified home-Wi-Fi connectivity.
+disable_ap_after_connect = true
+# Never put Twitch client secrets or OAuth tokens in this file.
+
+# Twitch application credentials are entered in the local setup wizard and
+# stored only in the Pi's protected state after authorization.

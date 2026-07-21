@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+umask 022
+getent group f11print >/dev/null || groupadd --system f11print
+id -u f11print >/dev/null 2>&1 || useradd --system --home-dir /var/lib/f11 --create-home --shell /usr/sbin/nologin --gid f11print f11print
+getent group f11-setup >/dev/null || groupadd --system f11-setup
+id -u f11-setup >/dev/null 2>&1 || useradd --system --home-dir /var/lib/f11-setup --create-home --shell /usr/sbin/nologin --gid f11-setup f11-setup
+id -u twitch-banner >/dev/null 2>&1 || useradd --system --home-dir /var/lib/twitch-banner --create-home --shell /usr/sbin/nologin twitch-banner
+usermod -aG lp f11print
+install -d -o lp -g lp -m0700 /var/spool/f11
+install -d -o f11print -g f11print -m0700 /var/lib/f11
+install -d -o f11-setup -g f11-setup -m0700 /var/lib/f11-setup
+install -d -o twitch-banner -g twitch-banner -m0700 /var/lib/twitch-banner
+install -d -o root -g twitch-banner -m0750 /etc/twitch-banner
+install -d -o root -g root -m0755 /usr/lib/cups/filter /usr/share/ppd /usr/share/cups/usb /usr/share/doc/rongta-f11-open
+install -m0755 /usr/local/lib/f11/pdftof11 /usr/lib/cups/filter/pdftof11
+install -m0644 /usr/share/f11-image/f11.ppd /usr/share/ppd/f11.ppd
+install -m0644 /usr/share/f11-image/0fe6-811e.usb-quirks /usr/share/cups/usb/0fe6-811e.usb-quirks
+for unit in twitch-banner.service f11-health.service f11-setup-wizard.service f11-setup-helper.service; do
+  [[ -f /usr/share/f11-image/$unit ]] && install -m0644 "/usr/share/f11-image/$unit" "/etc/systemd/system/$unit"
+done
+systemctl enable cups.service avahi-daemon.service NetworkManager.service f11-first-boot.service
+systemctl enable twitch-banner.service
+systemctl disable f11-health.service 2>/dev/null || true
+systemctl enable f11-setup-helper.service
+systemctl disable f11-setup-wizard.service 2>/dev/null || true
+rm -f /etc/systemd/system/multi-user.target.wants/ssh.service
+printf 'offline appliance assets installed; printer and Twitch remain unconfigured\n'

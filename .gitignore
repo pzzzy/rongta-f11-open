@@ -13,3 +13,7 @@ DerivedData/
 .env
 .env.*
 !.env.example
+.image-cache/
+Appliance/.image-cache/
+__pycache__/
+*.pyc

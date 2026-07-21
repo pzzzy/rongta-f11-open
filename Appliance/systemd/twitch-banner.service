@@ -3,6 +3,7 @@ Description=Twitch F11 cheer banner and gift-sub celebration printer
 After=network-online.target cups.service
 Wants=network-online.target
 Requires=cups.service
+ConditionPathExists=/var/lib/twitch-banner/authorization-complete
 
 [Service]
 Type=simple

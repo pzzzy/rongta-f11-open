@@ -1,0 +1,13 @@
+BASE_IMAGE_NAME=2026-06-18-raspios-trixie-armhf-lite.img.xz
+BASE_IMAGE_URL=https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2026-06-19/2026-06-18-raspios-trixie-armhf-lite.img.xz
+BASE_IMAGE_SHA256=ea4e84c501d6dd4f4b1d04eb84df133a03f90a05ee2e8ab849185c17c2b0707b
+BASE_IMAGE_RELEASE=Raspberry Pi OS Lite ARMHF 2026-06-18 (Trixie)
+TARGET_ARCH=armhf
+TARGET_GOARCH=arm
+TARGET_GOARM=6
+CANONICAL_QUEUE=Rongta_F11_Media
+IMAGE_PRODUCT=f11-twitch-zero
+IMAGE_VERSION=0.1.0-rc1
+PACKAGES=cups,cups-client,cups-filters,cups-filters-core-drivers,avahi-daemon,libnss-mdns,ghostscript,qpdf,poppler-utils,file,fonts-dejavu-core,network-manager,dnsmasq-base,nftables,ca-certificates,curl,bmap-tools
+# This lock file is parsed as strict KEY=VALUE data. No credentials are allowed.
+# Scripts ignore comment lines and reject unknown keys.

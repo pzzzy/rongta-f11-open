@@ -1,0 +1,14 @@
+[Unit]
+Description=F11 Twitch appliance first-boot provisioning
+After=NetworkManager.service local-fs.target
+Wants=NetworkManager.service
+ConditionPathExists=!/var/lib/f11-setup/first-boot-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/f11-image/first-boot
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
