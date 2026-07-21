@@ -16,6 +16,11 @@ assert 'check-f11-runtime' in installer
 assert 'twitch-banner-authorize' in installer
 assert 'twitch-banner run' in unit
 assert 'go build' in installer and './cmd/twitch-banner' in installer
+assert './cmd/giftprint' in installer
+assert './cmd/raidprint' in installer
+assert 'install -o root -g root -m0755 "$BUILD/giftprint" /usr/local/bin/giftprint' in installer
+assert 'install -o root -g root -m0755 "$BUILD/raidprint" /usr/local/bin/raidprint' in installer
+assert 'raidprint' in installer
 assert 'F11_QUEUE=' in installer
 assert 'TWITCH_BROADCASTER_ID=' in installer
 print('twitch banner architecture: PASS')

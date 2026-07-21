@@ -21,12 +21,14 @@ import (
 )
 
 const (
-	bannerWidth  = 1664
-	bannerRows   = 3045
-	designWidth  = 3045
-	designHeight = 1664
-	bannerMargin = 45
-	maxTextBytes = 256
+	bannerWidth      = 1664
+	legacyBannerRows = 3045
+	designWidth      = legacyBannerRows
+	designHeight     = 1664
+	bannerMargin     = 45
+	feedSafetyMargin = 90 // 0.44 in at 203 dpi, split above/below the ink
+	maxBannerRows    = 4060
+	maxTextBytes     = 256
 )
 
 type config struct {
@@ -47,6 +49,7 @@ type report struct {
 	FontSize  float64  `json:"font_size"`
 	WidthDots int      `json:"width_dots"`
 	Rows      int      `json:"rows"`
+	Inches    float64  `json:"inches"`
 	Bytes     int      `json:"bytes"`
 	SHA256    string   `json:"sha256"`
 	Submitted bool     `json:"submitted"`
@@ -146,36 +149,77 @@ func verifyQueue(queue string, runner commandRunner) error {
 	return nil
 }
 
-func build(cfg config) ([]byte, banner.Layout, error) {
+func cropToInk(gray []byte, width, height int) ([]byte, int, error) {
+	if width != bannerWidth || height <= 0 || len(gray) != width*height {
+		return nil, 0, errors.New("invalid rendered raster")
+	}
+	first, last := height, -1
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if gray[y*width+x] < 250 {
+				if y < first {
+					first = y
+				}
+				if y > last {
+					last = y
+				}
+			}
+		}
+	}
+	if last < first {
+		return nil, 0, errors.New("rendered banner has no ink")
+	}
+	start := first - feedSafetyMargin/2
+	if start < 0 {
+		start = 0
+	}
+	end := last + 1 + feedSafetyMargin - feedSafetyMargin/2
+	if end > height {
+		end = height
+	}
+	rows := end - start
+	if rows > maxBannerRows {
+		return nil, 0, errors.New("banner exceeds 20-inch maximum")
+	}
+	out := make([]byte, width*rows)
+	copy(out, gray[start*width:end*width])
+	return out, rows, nil
+}
+
+func build(cfg config) ([]byte, banner.Layout, int, error) {
 	layout, err := banner.PlanLines(cfg.Text, designWidth, designHeight, bannerMargin, cfg.LineCount, cfg.Font)
 	if err != nil {
-		return nil, banner.Layout{}, err
+		return nil, banner.Layout{}, 0, err
 	}
 	gray, err := banner.Render(layout)
 	if err != nil {
-		return nil, banner.Layout{}, err
+		return nil, banner.Layout{}, 0, err
 	}
-	intended, err := protocol.NativeMonochrome(gray, bannerWidth, bannerRows)
+	gray, rows, err := cropToInk(gray, bannerWidth, designWidth)
 	if err != nil {
-		return nil, banner.Layout{}, err
+		return nil, banner.Layout{}, 0, err
 	}
-	stream, err := protocol.EncodeNativeJob(gray, bannerWidth, bannerRows, protocol.Settings{Speed: 12, Density: 9, Copies: 1})
+	intended, err := protocol.NativeMonochrome(gray, bannerWidth, rows)
 	if err != nil {
-		return nil, banner.Layout{}, err
+		return nil, banner.Layout{}, 0, err
+	}
+	stream, err := protocol.EncodeNativeJob(gray, bannerWidth, rows, protocol.Settings{Speed: 12, Density: 9, Copies: 1})
+	if err != nil {
+		return nil, banner.Layout{}, 0, err
 	}
 	decoded, err := protocol.DecodeJob(stream)
 	if err != nil {
-		return nil, banner.Layout{}, err
+		return nil, banner.Layout{}, 0, err
 	}
-	if decoded.WidthBytes != bannerWidth/8 || decoded.Height != bannerRows || decoded.Copies != 1 || len(decoded.Rows) != len(intended) {
-		return nil, banner.Layout{}, errors.New("decoded geometry mismatch")
+	if decoded.WidthBytes != bannerWidth/8 || decoded.Height != rows || decoded.Copies != 1 || len(decoded.Rows) != len(intended) {
+		return nil, banner.Layout{}, 0, errors.New("decoded geometry mismatch")
 	}
 	for i := range intended {
 		if !bytes.Equal(intended[i], decoded.Rows[i]) {
-			return nil, banner.Layout{}, fmt.Errorf("decoded raster mismatch at row %d", i+1)
+			return nil, banner.Layout{}, 0, fmt.Errorf("decoded raster mismatch at row %d", i+1)
 		}
 	}
-	return stream, layout, nil
+	return stream, layout, rows, nil
 }
 
 func fontDisplayName(style banner.FontStyle) string {
@@ -202,7 +246,7 @@ func run(args []string, envQueue string, output io.Writer, runner commandRunner,
 	if err != nil {
 		return err
 	}
-	stream, layout, err := build(cfg)
+	stream, layout, rows, err := build(cfg)
 	if err != nil {
 		return err
 	}
@@ -210,7 +254,7 @@ func run(args []string, envQueue string, output io.Writer, runner commandRunner,
 	r := report{
 		OK: true, Preview: cfg.Preview, Queue: cfg.Queue, Lines: layout.Lines,
 		Font: string(cfg.Font), FontName: fontDisplayName(cfg.Font), FontSize: layout.FontSize,
-		WidthDots: bannerWidth, Rows: bannerRows, Bytes: len(stream), SHA256: hex.EncodeToString(sum[:]),
+		WidthDots: bannerWidth, Rows: rows, Inches: float64(rows) / 203.0, Bytes: len(stream), SHA256: hex.EncodeToString(sum[:]),
 	}
 	if cfg.Preview && r.Queue == "" {
 		r.Queue = "auto"

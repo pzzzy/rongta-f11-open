@@ -65,6 +65,46 @@ func TestSubscribeChatUsesBroadcasterAsAuthorizedChatUser(t *testing.T) {
 	}
 }
 
+func TestSubscribeRaidUsesTargetBroadcasterCondition(t *testing.T) {
+	var got map[string]any
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.SubscribeRaid(context.Background(), "52588311", "session-raid"); err != nil {
+		t.Fatal(err)
+	}
+	cond := got["condition"].(map[string]any)
+	transport := got["transport"].(map[string]any)
+	if got["type"] != "channel.raid" || got["version"] != "1" || cond["to_broadcaster_user_id"] != "52588311" || transport["method"] != "websocket" || transport["session_id"] != "session-raid" {
+		t.Fatalf("bad raid subscription: %#v", got)
+	}
+}
+
+func TestSubscribeChatNotificationsUsesBroadcasterAsAuthorizedChatUser(t *testing.T) {
+	var got map[string]any
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.SubscribeChatNotifications(context.Background(), "52588311", "session-123"); err != nil {
+		t.Fatal(err)
+	}
+	cond := got["condition"].(map[string]any)
+	transport := got["transport"].(map[string]any)
+	if got["type"] != "channel.chat.notification" || got["version"] != "1" || cond["broadcaster_user_id"] != "52588311" || cond["user_id"] != "52588311" || transport["method"] != "websocket" || transport["session_id"] != "session-123" {
+		t.Fatalf("bad chat notification subscription: %#v", got)
+	}
+}
+
 func TestCheerParserIgnoresRealChatPayloadBeforeEventDecode(t *testing.T) {
 	payload := []byte(`{"metadata":{"message_id":"delivery-real","message_type":"notification","subscription_type":"channel.chat.message"},"payload":{"event":{"broadcaster_user_id":"52588311","chatter_user_id":"52588311","chatter_user_login":"uwogoob","message_id":"real-chat-1","message":{"text":"!testbanner VIP 💚","fragments":[]}}}}`)
 	if _, ok, err := ParseNotification(payload); err != nil || ok {

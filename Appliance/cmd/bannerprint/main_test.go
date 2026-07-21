@@ -72,7 +72,7 @@ func TestPreviewBuildsAndValidatesWithoutCallingExternalCommands(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK || !got.Preview || got.Submitted || got.Rows != 3045 || got.WidthDots != 1664 || len(got.Lines) != 3 || got.Font != "bold" || got.Bytes <= 0 || got.SHA256 == "" {
+	if !got.OK || !got.Preview || got.Submitted || got.Rows <= 0 || got.Rows >= legacyBannerRows || got.WidthDots != 1664 || len(got.Lines) != 3 || got.Font != "bold" || got.Bytes <= 0 || got.SHA256 == "" {
 		t.Fatalf("report=%#v", got)
 	}
 }
@@ -134,7 +134,7 @@ func TestPrintSubmitsOneValidatedRawJobViaStdin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decoded.WidthBytes != 208 || decoded.Height != 3045 || decoded.Copies != 1 {
+		if decoded.WidthBytes != 208 || decoded.Height <= 0 || decoded.Height >= legacyBannerRows || decoded.Copies != 1 {
 			t.Fatalf("decoded=%#v", decoded)
 		}
 		return []byte("request id is Rongta_F11_Media-42 (1 file(s))\n"), nil
@@ -189,7 +189,7 @@ func TestMaximumAutoInputCompletesWithinLocalBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	if _, _, err := build(cfg); err != nil {
+	if _, _, _, err := build(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(start); elapsed > 15*time.Second {
@@ -232,5 +232,48 @@ func TestTextBeginningWithDashRequiresOptionTerminatorButRemainsData(t *testing.
 	}
 	if cfg.Text != "-DO NOT ENTER" {
 		t.Fatalf("text=%q", cfg.Text)
+	}
+}
+
+func TestShortBannerUsesContentProportionalRows(t *testing.T) {
+	for _, text := range []string{"*", "HELLO", "ONE TWO THREE FOUR FIVE SIX"} {
+		cfg, err := parseArgs([]string{"--preview", text}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, layout, rows, err := build(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rows <= 0 || rows > maxBannerRows || rows >= legacyBannerRows {
+			t.Fatalf("text=%q rows=%d layout=%#v", text, rows, layout)
+		}
+	}
+}
+
+func TestCropToInkRejectsBlankAndHonorsTwentyInchMaximum(t *testing.T) {
+	blank := bytes.Repeat([]byte{255}, bannerWidth*100)
+	if _, _, err := cropToInk(blank, bannerWidth, 100); err == nil {
+		t.Fatal("accepted blank raster")
+	}
+	gray := bytes.Repeat([]byte{255}, bannerWidth*legacyBannerRows)
+	for _, y := range []int{0, legacyBannerRows - 1} {
+		for x := 0; x < bannerWidth; x++ {
+			gray[y*bannerWidth+x] = 0
+		}
+	}
+	_, rows, err := cropToInk(gray, bannerWidth, legacyBannerRows)
+	if err != nil || rows != legacyBannerRows {
+		t.Fatalf("rows=%d err=%v", rows, err)
+	}
+}
+
+func TestTwentyInchMaximumRejectsOverlongRenderedRaster(t *testing.T) {
+	big := bytes.Repeat([]byte{255}, bannerWidth*(maxBannerRows+1))
+	for y := 0; y < maxBannerRows+1; y++ {
+		big[y*bannerWidth] = 0
+	}
+	if _, _, err := cropToInk(big, bannerWidth, maxBannerRows+1); err == nil {
+		t.Fatal("accepted raster above 20-inch maximum")
 	}
 }

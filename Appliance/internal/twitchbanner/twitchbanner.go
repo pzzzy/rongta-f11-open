@@ -115,15 +115,19 @@ func (j *Journal) append(e journalEntry) error {
 }
 
 func (j *Journal) Reserve(id string, cheer Cheer) (bool, error) {
+	return j.ReserveEvent(id, cheer.Bits, cheer.UserName, cheer.Message)
+}
+
+func (j *Journal) ReserveEvent(id string, amount int, user, text string) (bool, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if id == "" {
-		return false, errors.New("missing Twitch message ID")
+		return false, errors.New("missing Twitch event ID")
 	}
 	if j.seen[id] {
 		return false, nil
 	}
-	e := journalEntry{EventID: id, State: "reserved", Bits: cheer.Bits, User: cheer.UserName, Text: cheer.Message}
+	e := journalEntry{EventID: id, State: "reserved", Bits: amount, User: user, Text: text}
 	if err := j.append(e); err != nil {
 		return false, err
 	}

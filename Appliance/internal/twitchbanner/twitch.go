@@ -168,6 +168,22 @@ func (c APIClient) SubscribeChat(ctx context.Context, broadcasterID, sessionID s
 	return c.doJSON(ctx, http.MethodPost, "/helix/eventsub/subscriptions", body, nil)
 }
 
+func (c APIClient) SubscribeChatNotifications(ctx context.Context, broadcasterID, sessionID string) error {
+	if broadcasterID == "" || sessionID == "" {
+		return errors.New("broadcaster and WebSocket session IDs are required")
+	}
+	body := map[string]any{"type": "channel.chat.notification", "version": "1", "condition": map[string]string{"broadcaster_user_id": broadcasterID, "user_id": broadcasterID}, "transport": map[string]string{"method": "websocket", "session_id": sessionID}}
+	return c.doJSON(ctx, http.MethodPost, "/helix/eventsub/subscriptions", body, nil)
+}
+
+func (c APIClient) SubscribeRaid(ctx context.Context, broadcasterID, sessionID string) error {
+	if broadcasterID == "" || sessionID == "" {
+		return errors.New("broadcaster and WebSocket session IDs are required")
+	}
+	body := map[string]any{"type": "channel.raid", "version": "1", "condition": map[string]string{"to_broadcaster_user_id": broadcasterID}, "transport": map[string]string{"method": "websocket", "session_id": sessionID}}
+	return c.doJSON(ctx, http.MethodPost, "/helix/eventsub/subscriptions", body, nil)
+}
+
 func (c APIClient) UserByLogin(ctx context.Context, login string) (string, error) {
 	var out struct {
 		Data []struct {
