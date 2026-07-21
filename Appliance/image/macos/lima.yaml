@@ -1,0 +1,40 @@
+arch: aarch64
+cpus: 4
+memory: 6GiB
+disk: 30GiB
+vmType: vz
+mountType: virtiofs
+images:
+  - location: https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img
+mounts:
+  - location: "{{.Home}}"
+    mountPoint: /workspace
+    writable: true
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      apt-get update
+      apt-get install -y curl xz-utils rsync qemu-user-static binfmt-support parted e2fsprogs util-linux file systemd bmap-tools
+containerd:
+  system: false
+  user: false
+hostResolver:
+  enabled: true
+message: |
+  F11 image builder is ready. Host home is mounted at /workspace.
+  Use image/macos/build-with-lima.sh from the host.
+minimumLimaVersion: 2.0.0
+video:
+  display: none
+rosetta:
+  enabled: false
+ssh:
+  loadDotSSHPubKeys: false
+firmware:
+  legacyBIOS: false
+networks: []
+additionalDisks: []
+
+# Public build configuration only. Never add credentials here.

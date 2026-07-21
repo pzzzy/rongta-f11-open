@@ -2,7 +2,7 @@
 set -euo pipefail
 export LC_ALL=C
 PATH=/usr/local/lib/f11:/usr/sbin:/usr/bin:/bin
-F11_QUEUE=${F11_QUEUE:-Rongta_F11}
+F11_QUEUE=${F11_QUEUE:-Rongta_F11_Media}
 /usr/local/lib/f11/f11d self-test >/dev/null
 [[ -x /usr/lib/cups/filter/pdftof11 ]]
 [[ -x /usr/local/lib/f11/plan-queue-migration ]]

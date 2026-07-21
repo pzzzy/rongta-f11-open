@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+import os,re,subprocess,sys,tomllib
+p=sys.argv[1] if len(sys.argv)==2 else ''
+if not p or not os.path.isfile(p): raise SystemExit('settings file missing')
+with open(p,'rb') as f: c=tomllib.load(f)
+allowed={'device':{'hostname','country','timezone','locale'},'wifi':{'ssid','password','hidden'},'access':{'enable_ssh','ssh_authorized_key'},'setup':{'disable_ap_after_connect'}}
+if set(c)-set(allowed): raise SystemExit('unknown settings section')
+for section,values in c.items():
+ if not isinstance(values,dict) or set(values)-allowed[section]: raise SystemExit('unknown settings key')
+d=c.get('device',{}); w=c.get('wifi',{}); a=c.get('access',{})
+host=d.get('hostname','f11-setup')
+if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',host): raise SystemExit('invalid hostname')
+subprocess.run(['hostnamectl','set-hostname',host],check=True)
+if d.get('timezone'): subprocess.run(['timedatectl','set-timezone',d['timezone']],check=True)
+ssid=w.get('ssid',''); password=w.get('password','')
+if bool(ssid)!=bool(password): raise SystemExit('wifi ssid and password must both be set')
+if ssid:
+ if not 1<=len(ssid.encode())<=32 or not 8<=len(password)<=63: raise SystemExit('invalid wifi settings')
+ subprocess.run(['nmcli','connection','delete','f11-home'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','add','type','wifi','ifname','wlan0','con-name','f11-home','ssid',ssid],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','modify','f11-home','wifi-sec.key-mgmt','wpa-psk','wifi-sec.psk',password,'connection.autoconnect','yes','connection.autoconnect-priority','100'],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['nmcli','connection','up','f11-home'],check=True,stdout=subprocess.DEVNULL)
+if a.get('enable_ssh'):
+ key=a.get('ssh_authorized_key','')
+ if key and not re.fullmatch(r'(ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: .*)?',key): raise SystemExit('invalid SSH public key')
+ subprocess.run(['systemctl','enable','ssh.service'],check=True)
+ if key:
+  os.makedirs('/root/.ssh',mode=0o700,exist_ok=True)
+  fd=os.open('/root/.ssh/authorized_keys',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600); os.write(fd,(key+'\n').encode()); os.close(fd)
+print('settings imported')

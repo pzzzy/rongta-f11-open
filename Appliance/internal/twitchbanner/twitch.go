@@ -20,6 +20,8 @@ const (
 	TwitchOAuthBase = "https://id.twitch.tv/oauth2"
 )
 
+var tokenEndpoint = TwitchOAuthBase + "/token"
+
 type Token struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
@@ -205,11 +207,14 @@ func ExchangeCode(ctx context.Context, h *http.Client, clientID, secret, code, r
 	return tokenRequest(ctx, h, v)
 }
 func RefreshToken(ctx context.Context, h *http.Client, clientID, secret, refresh string) (Token, error) {
-	v := url.Values{"client_id": {clientID}, "client_secret": {secret}, "grant_type": {"refresh_token"}, "refresh_token": {refresh}}
+	v := url.Values{"client_id": {clientID}, "grant_type": {"refresh_token"}, "refresh_token": {refresh}}
+	if secret != "" {
+		v.Set("client_secret", secret)
+	}
 	return tokenRequest(ctx, h, v)
 }
 func tokenRequest(ctx context.Context, h *http.Client, v url.Values) (Token, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, TwitchOAuthBase+"/token", strings.NewReader(v.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(v.Encode()))
 	if err != nil {
 		return Token{}, err
 	}

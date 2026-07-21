@@ -1,0 +1,41 @@
+[Unit]
+Description=F11 privileged setup helper
+After=NetworkManager.service cups.service
+Wants=NetworkManager.service cups.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/f11-setup-helper
+User=root
+Group=f11-setup
+UMask=0077
+RuntimeDirectory=f11-setup
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=no
+PrivateTmp=yes
+PrivateDevices=no
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SETGID CAP_SETUID CAP_SYS_BOOT CAP_NET_ADMIN
+AmbientCapabilities=
+ReadWritePaths=/run/f11-setup /etc/NetworkManager /etc/cups /etc/twitch-banner /var/lib/NetworkManager /var/lib/f11-setup /var/lib/twitch-banner /var/spool/cups /var/cache/cups /var/lib/systemd
+
+[Install]
+WantedBy=multi-user.target

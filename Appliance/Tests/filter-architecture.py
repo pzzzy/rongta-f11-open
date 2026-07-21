@@ -41,7 +41,7 @@ assert quirk.read_text().strip() == "0x0fe6 0x811e unidir delay-close"
 assert "/usr/share/cups/usb/0fe6-811e.usb-quirks" in installer
 assert "cups/f11-migration-hold" in installer
 assert installer.index('f11-migration-hold" /usr/lib/cups/backend/f11') < installer.index("apt-get install") < installer.index("systemctl enable --now cups")
-assert installer.index("cupsdisable Rongta_F11") < installer.index("cancel -a Rongta_F11") < installer.index('lpadmin -p Rongta_F11 -v "$F11_USB_URI"') < installer.index("rm -f /usr/lib/cups/backend/f11") < installer.index("cupsenable Rongta_F11")
+assert installer.index('cupsdisable "$F11_QUEUE"') < installer.index('cancel -a "$F11_QUEUE"') < installer.index('lpadmin -p "$F11_QUEUE" -v "$F11_USB_URI"') < installer.index("rm -f /usr/lib/cups/backend/f11") < installer.index('cupsenable "$F11_QUEUE"')
 health = root / "scripts/f11-health.sh"
 assert health.exists(), "missing non-printing CUPS health check"
 health_text = health.read_text()
@@ -49,7 +49,9 @@ assert "self-test" in health_text
 assert "lpinfo -v" not in health_text
 assert "/usr/lib/cups/backend/usb" not in health_text
 assert "check-f11-runtime" in health_text
-assert 'F11_QUEUE=${F11_QUEUE:-Rongta_F11}' in health_text
+assert 'F11_QUEUE=${F11_QUEUE:-Rongta_F11_Media}' in health_text
+assert 'F11_QUEUE=${F11_QUEUE:-Rongta_F11_Media}' in installer
+assert 'lpadmin -p "$F11_QUEUE"' in installer
 assert 'lpstat -v "$F11_QUEUE"' in health_text
 assert 'check-f11-runtime "$F11_QUEUE" "$QUEUE"' in health_text
 assert "send" not in health_text

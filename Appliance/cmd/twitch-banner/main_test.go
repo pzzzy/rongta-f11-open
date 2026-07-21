@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,39 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/twitchgift"
 )
+
+func TestWriteReadyMarkerIsAtomicAndNonsecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ready.json")
+	if err := writeReadyMarker(path, "12345"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	for _, want := range []string{"12345", "channel.cheer", "channel.chat.message", "channel.chat.notification", "channel.raid"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %s: %s", want, text)
+		}
+	}
+	if strings.Contains(strings.ToLower(text), "token") {
+		t.Fatalf("secret-like field in marker: %s", text)
+	}
+	if mode, _ := os.Stat(path); mode.Mode().Perm() != 0600 {
+		t.Fatalf("mode=%o", mode.Mode().Perm())
+	}
+}
+
+func TestEnvConfigAllowsPublicClientWithoutSecret(t *testing.T) {
+	t.Setenv("TWITCH_CLIENT_ID", "publicclient123")
+	t.Setenv("TWITCH_CLIENT_SECRET", "")
+	t.Setenv("TWITCH_CHANNEL", "channel")
+	t.Setenv("TWITCH_BROADCASTER_ID", "123")
+	if _, err := envConfig(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func websocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn, func()) {
 	t.Helper()

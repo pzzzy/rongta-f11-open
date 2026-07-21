@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,6 +145,28 @@ func TestParseChatIgnoresNonCommandAndEmptyCommand(t *testing.T) {
 		if _, ok, err := ParseChatCommand(data, "52588311"); err != nil || ok {
 			t.Fatalf("text %q accepted: ok=%v err=%v", text, ok, err)
 		}
+	}
+}
+
+func TestPublicClientRefreshOmitsClientSecret(t *testing.T) {
+	old := tokenEndpoint
+	defer func() { tokenEndpoint = old }()
+	seen := make(chan url.Values, 1)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		seen <- r.Form
+		io.WriteString(w, `{"access_token":"a","refresh_token":"r","expires_in":3600,"scope":["bits:read","user:read:chat"],"token_type":"bearer"}`)
+	}))
+	defer s.Close()
+	tokenEndpoint = s.URL
+	if _, err := RefreshToken(context.Background(), s.Client(), "publicclient", "", "refresh"); err != nil {
+		t.Fatal(err)
+	}
+	form := <-seen
+	if _, ok := form["client_secret"]; ok {
+		t.Fatalf("client_secret sent: %v", form)
 	}
 }
 

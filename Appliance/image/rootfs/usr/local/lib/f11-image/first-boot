@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+umask 077
+STATE=/var/lib/f11-setup
+BOOT=/boot/firmware
+[[ -d $BOOT ]] || BOOT=/boot
+install -d -o f11-setup -g f11-setup -m0700 "$STATE"
+exec > >(systemd-cat -t f11-first-boot) 2>&1
+printf 'stage=begin version=%s\n' "$(cat /usr/share/f11-image/version)"
+
+envelope="$BOOT/f11-personalize.json"
+if [[ -s $envelope ]]; then
+  /usr/local/lib/f11-image/import-envelope "$envelope"
+  rm -f "$envelope"
+fi
+
+random_chars() {
+  local alphabet=$1 count=$2 output rc
+  set +o pipefail
+  output=$(LC_ALL=C tr -dc "$alphabet" </dev/urandom | head -c "$count")
+  rc=$?
+  set -o pipefail
+  [[ $rc -eq 0 && ${#output} -eq $count ]] || return 1
+  printf '%s' "$output"
+}
+if [[ ! -s $STATE/device-id ]]; then
+  random_chars 'a-f0-9' 12 >$STATE/device-id
+fi
+if [[ ! -s $STATE/setup-code ]]; then
+  random_chars 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' 10 >$STATE/setup-code
+fi
+if [[ ! -s $STATE/ap-password ]]; then
+  random_chars 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789' 16 >$STATE/ap-password
+fi
+chmod 0600 "$STATE"/{device-id,setup-code,ap-password}
+chown root:root "$STATE"/{device-id,setup-code,ap-password}
+suffix=$(tail -c 5 "$STATE/device-id" | tr '[:lower:]' '[:upper:]')
+ssid="F11-SETUP-$suffix"
+
+cat >"$BOOT/F11-SETUP.txt.new" <<EOF
+F11 Twitch Printer Setup
+========================
+Setup Wi-Fi: $ssid
+Wi-Fi password: $(cat "$STATE/ap-password")
+Setup code: $(cat "$STATE/setup-code")
+Open after connecting: http://f11-setup.local:8080/
+If that does not open, try http://10.42.0.1:8080/
+Keep this card private. Delete it after setup.
+EOF
+chmod 0600 "$BOOT/F11-SETUP.txt.new"
+mv -f "$BOOT/F11-SETUP.txt.new" "$BOOT/F11-SETUP.txt"
+
+settings="$BOOT/f11-settings.toml"
+if [[ -s $settings ]]; then
+  /usr/local/lib/f11-image/import-settings "$settings"
+  rm -f "$settings"
+fi
+
+if ! nmcli -t -f TYPE,STATE connection show --active | grep -Fqx '802-11-wireless:activated'; then
+  /usr/local/lib/f11-image/network-recover
+fi
+systemctl enable --now f11-setup-wizard.service
+systemctl disable f11-first-boot.service
+install -o f11-setup -g f11-setup -m0600 /dev/null "$STATE/first-boot-complete"
+printf 'stage=complete ap_ssid=%s\n' "$ssid"

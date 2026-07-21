@@ -27,22 +27,25 @@ const redirectURI = "http://localhost:17563/twitch/callback"
 var wsURL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30"
 
 type config struct {
-	ClientID, ClientSecret, Channel, BroadcasterID, Queue, TokenFile, JournalFile string
+	ClientID, ClientSecret, Channel, BroadcasterID, Queue, TokenFile, JournalFile, ReadyFile string
 }
 
 func envConfig() (config, error) {
-	c := config{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET"), Channel: strings.ToLower(os.Getenv("TWITCH_CHANNEL")), BroadcasterID: os.Getenv("TWITCH_BROADCASTER_ID"), Queue: os.Getenv("F11_QUEUE"), TokenFile: os.Getenv("TWITCH_TOKEN_FILE"), JournalFile: os.Getenv("TWITCH_JOURNAL_FILE")}
+	c := config{ClientID: os.Getenv("TWITCH_CLIENT_ID"), ClientSecret: os.Getenv("TWITCH_CLIENT_SECRET"), Channel: strings.ToLower(os.Getenv("TWITCH_CHANNEL")), BroadcasterID: os.Getenv("TWITCH_BROADCASTER_ID"), Queue: os.Getenv("F11_QUEUE"), TokenFile: os.Getenv("TWITCH_TOKEN_FILE"), JournalFile: os.Getenv("TWITCH_JOURNAL_FILE"), ReadyFile: os.Getenv("TWITCH_READY_FILE")}
 	if c.TokenFile == "" {
 		c.TokenFile = "/var/lib/twitch-banner/token.json"
 	}
 	if c.JournalFile == "" {
 		c.JournalFile = "/var/lib/twitch-banner/events.jsonl"
 	}
+	if c.ReadyFile == "" {
+		c.ReadyFile = "/var/lib/twitch-banner/eventsub-ready.json"
+	}
 	if c.Queue == "" {
 		c.Queue = "Rongta_F11_Media"
 	}
-	if c.ClientID == "" || c.ClientSecret == "" || c.Channel == "" || c.BroadcasterID == "" {
-		return c, errors.New("TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL, and TWITCH_BROADCASTER_ID are required")
+	if c.ClientID == "" || c.Channel == "" || c.BroadcasterID == "" {
+		return c, errors.New("TWITCH_CLIENT_ID, TWITCH_CHANNEL, and TWITCH_BROADCASTER_ID are required")
 	}
 	return c, nil
 }
@@ -70,7 +73,51 @@ func loadToken(path string) (t twitchbanner.Token, err error) {
 	return
 }
 
+var requiredSubscriptions = []string{"channel.cheer", "channel.chat.message", "channel.chat.notification", "channel.raid"}
+
+func writeReadyMarker(path, broadcaster string) error {
+	marker := struct {
+		BroadcasterID string   `json:"broadcaster_id"`
+		Subscriptions []string `json:"subscriptions"`
+		ReadyAt       string   `json:"ready_at"`
+	}{broadcaster, requiredSubscriptions, time.Now().UTC().Format(time.RFC3339)}
+	b, err := json.Marshal(marker)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	tmp := path + ".new"
+	if err = os.WriteFile(tmp, append(b, '\n'), 0600); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(tmp, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, path); err != nil {
+		return err
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
 func authorize(ctx context.Context, c config) error {
+	if c.ClientSecret == "" {
+		return errors.New("TWITCH_CLIENT_SECRET is required for authorization-code setup; use the image wizard for public device authorization")
+	}
 	authURL, state, err := twitchbanner.AuthorizationURL(c.ClientID, redirectURI)
 	if err != nil {
 		return err
@@ -119,14 +166,13 @@ func freshToken(ctx context.Context, c config) (twitchbanner.Token, error) {
 	if err != nil {
 		return t, err
 	}
+	refreshed := false
 	if t.NeedsRefresh(time.Now()) {
 		t, err = twitchbanner.RefreshToken(ctx, nil, c.ClientID, c.ClientSecret, t.RefreshToken)
 		if err != nil {
 			return t, err
 		}
-		if err = saveToken(c.TokenFile, t); err != nil {
-			return t, err
-		}
+		refreshed = true
 	}
 	identity, err := twitchbanner.ValidateToken(ctx, nil, t.AccessToken)
 	if err != nil {
@@ -134,6 +180,11 @@ func freshToken(ctx context.Context, c config) (twitchbanner.Token, error) {
 	}
 	if err = identity.Validate(c.ClientID, c.Channel, c.BroadcasterID); err != nil {
 		return t, err
+	}
+	if refreshed {
+		if err = saveToken(c.TokenFile, t); err != nil {
+			return t, err
+		}
 	}
 	return t, nil
 }
@@ -247,6 +298,9 @@ func flushGifts(ctx context.Context, collector *twitchgift.Collector, gifts twit
 }
 
 func runConnection(ctx context.Context, c config, p twitchbanner.Processor, gifts twitchgift.Processor, raids twitchraid.Processor, collector *twitchgift.Collector) error {
+	if err := os.Remove(c.ReadyFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	tok, err := freshToken(ctx, c)
 	if err != nil {
 		return err
@@ -277,6 +331,10 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor, gift
 		return err
 	}
 	if err = api.SubscribeRaid(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	if err = writeReadyMarker(c.ReadyFile, broadcaster); err != nil {
 		_ = conn.Close()
 		return err
 	}

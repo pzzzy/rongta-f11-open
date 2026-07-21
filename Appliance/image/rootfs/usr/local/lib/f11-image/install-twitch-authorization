@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+import json,os,re,subprocess,sys,tempfile,time,datetime
+raw=sys.stdin.buffer.read(65537)
+if len(raw)>65536: raise SystemExit('authorization payload too large')
+c=json.loads(raw)
+keys={'op','client_id','login','user_id','access_token','refresh_token','expires_at','scopes'}
+if set(c)!=keys or c['op']!='twitch_install': raise SystemExit('invalid authorization schema')
+if not re.fullmatch(r'[A-Za-z0-9_-]{8,128}',c['client_id']): raise SystemExit('invalid client id')
+if not re.fullmatch(r'[a-z0-9_]{1,25}',c['login']) or not re.fullmatch(r'[0-9]{1,20}',c['user_id']): raise SystemExit('invalid identity')
+if not c['access_token'] or not c['refresh_token'] or sorted(c['scopes'])!=['bits:read','user:read:chat']: raise SystemExit('invalid token')
+datetime.datetime.fromisoformat(c['expires_at'].replace('Z','+00:00'))
+token={'access_token':c['access_token'],'refresh_token':c['refresh_token'],'scope':c['scopes'],'token_type':'bearer','expires_at':c['expires_at']}
+env=f"TWITCH_CLIENT_ID={c['client_id']}\nTWITCH_CHANNEL={c['login']}\nTWITCH_BROADCASTER_ID={c['user_id']}\nF11_QUEUE=Rongta_F11_Media\nTWITCH_TOKEN_FILE=/var/lib/twitch-banner/token.json\nTWITCH_JOURNAL_FILE=/var/lib/twitch-banner/events.jsonl\n"
+def atomic(path,data,uid,gid):
+ os.makedirs(os.path.dirname(path),mode=0o750,exist_ok=True); fd,tmp=tempfile.mkstemp(prefix='.auth-',dir=os.path.dirname(path));
+ try:
+  os.fchmod(fd,0o600); os.fchown(fd,uid,gid); os.write(fd,data); os.fsync(fd); os.close(fd); os.replace(tmp,path); d=os.open(os.path.dirname(path),os.O_RDONLY); os.fsync(d); os.close(d)
+ except BaseException:
+  try: os.close(fd)
+  except OSError: pass
+  try: os.unlink(tmp)
+  except OSError: pass
+  raise
+import pwd,grp
+u=pwd.getpwnam('twitch-banner'); g=grp.getgrnam('twitch-banner')
+marker='/var/lib/twitch-banner/authorization-complete'
+try: os.unlink(marker)
+except FileNotFoundError: pass
+atomic('/var/lib/twitch-banner/token.json',(json.dumps(token,separators=(',',':'))+'\n').encode(),u.pw_uid,g.gr_gid)
+atomic('/etc/twitch-banner/environment',env.encode(),0,g.gr_gid)
+atomic(marker,b'authorized\n',0,g.gr_gid)
+subprocess.run(['systemctl','restart','twitch-banner.service'],check=True)
+for _ in range(20):
+ if subprocess.run(['systemctl','is-active','--quiet','twitch-banner.service']).returncode==0: print('Twitch service active'); break
+ time.sleep(.5)
+else: raise SystemExit('Twitch service did not become active')

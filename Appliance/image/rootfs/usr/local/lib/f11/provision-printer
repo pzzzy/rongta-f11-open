@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+queue=${1:-}
+[[ $queue == Rongta_F11_Media ]] || { echo 'invalid canonical queue' >&2; exit 2; }
+backend=/usr/lib/cups/backend/usb
+planner=/usr/local/lib/f11/plan-queue-migration
+[[ -x $backend && -x $planner ]] || { echo 'printer discovery unavailable' >&2; exit 1; }
+current=$(lpstat -v "$queue" 2>/dev/null || true)
+if [[ -n $current && ! $current =~ ^device\ for\ Rongta_F11_Media:\ usb:.*\/F11(\?.*)?$ ]]; then
+  echo 'refusing unmanaged existing queue' >&2; exit 1
+fi
+uri=$($backend | $planner)
+[[ $uri == usb:*F11* ]] || { echo 'invalid F11 USB URI' >&2; exit 1; }
+lpadmin -p "$queue" -v "$uri" -P /usr/share/ppd/f11.ppd -o printer-is-shared=true -o PageSize=F11Media
+cupsaccept "$queue"
+cupsenable "$queue"
+F11_QUEUE="$queue" /usr/local/lib/f11/f11-health
+systemctl enable f11-health.service
+printf 'configured queue=%s\n' "$queue"
