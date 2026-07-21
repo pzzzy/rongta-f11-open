@@ -14,6 +14,13 @@ assert 'GOARCH=arm GOARM=6' in over
 assert 'qemu-arm-static' in custom and 'systemd-analyze' in custom
 assert 'git -C "$ROOT/.." archive' in build and 'git -C "$ROOT/../.."' not in build
 assert 'F11_SOURCE_ARCHIVE' in build
+assert 'install -m0755 "$ROOT/image/flash-card.py" "$DIST/flash-card.py"' in build
+assert '"$product-$version-source.tar.gz" flash-card.py >SHA256SUMS' in build
+flasher=(r/'image/flash-card.py').read_text()
+assert '--root-write' in flasher and '--root-read' in flasher
+assert 'require_external_physical(expected.identifier)' in flasher
+assert 'os.open(expected.raw_path, os.O_WRONLY)' in flasher
+assert '"/bin/dd"' not in flasher
 assert '(cd "$DIST" && sha256 "$product-$version.img.xz"' in build
 assert 'sha256 "$DIST/$product-$version.img.xz"' not in build
 assert 'F11_SOURCE_ARCHIVE=/workspace/$REPO/.image-cache/source-host.tar.gz' in (r/'image/macos/build-with-lima.sh').read_text()
