@@ -21,13 +21,28 @@ Release files appear in `dist/`: `.img.xz`, `.bmap`, `.img.xz.sha256`, and a man
 
 ## Flash
 
-Verify the checksum, then use Raspberry Pi Imager's custom-image option or:
+On macOS, use the included safety-focused flasher from the release directory:
 
 ```bash
-xz -dc f11-twitch-zero-*.img.xz | sudo dd of=/dev/SD_DEVICE bs=4M conv=fsync status=progress
+cd dist
+./flash-card.py
 ```
 
-Triple-check the destination device. Flashing destroys it.
+It verifies the image checksum before device selection, lists only external physical whole disks, shows each model/capacity/protocol/mounted volume, rejects the current system disk and internal/virtual/read-only media, and requires two exact confirmations. The warning explicitly states that every partition and file on the selected card will be destroyed. It checks fresh `diskutil list external physical` membership plus the card's macOS media UUID and physical-location identity after confirmation, after administrator authentication, and after unmounting. A narrow root worker reopens and verifies the image against the original pre-selection checksum, opens the raw device descriptor, and then repeats the external/identity checks while that descriptor is pinned before writing and fsyncing it. Readback uses the same open-then-validate pattern, verifies the complete written-image SHA-256, and rechecks identity before ejecting. If a reader/card exposes no media UUID or physical-location identity, the script fails closed; use Raspberry Pi Imager for that hardware.
+
+To rehearse selection and confirmations without unmounting or writing anything:
+
+```bash
+./flash-card.py --dry-run
+```
+
+You may also specify a whole external disk explicitly, but partitions such as `/dev/disk4s1` are rejected:
+
+```bash
+./flash-card.py --device /dev/disk4
+```
+
+Raspberry Pi Imager's custom-image option remains a supported graphical alternative. The low-level `dd` command is intentionally omitted from the primary walkthrough because a mistyped device can erase the Mac's wrong disk.
 
 ## Optional Wi-Fi settings
 
@@ -52,7 +67,7 @@ The wizard verifies, in order:
 3. Twitch device authorization and immutable account identity;
 4. EventSub/service readiness;
 5. no-paper previews;
-6. optional clearly labeled physical print tests;
+6. one optional, clearly labeled fixed physical banner test;
 7. final health and setup completion.
 
 The public image does not embed a Twitch client secret. A project public Client ID may be injected for releases; otherwise the wizard explains how to register a public Twitch application and enter its Client ID.
