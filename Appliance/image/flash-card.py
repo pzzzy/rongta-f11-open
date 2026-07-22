@@ -33,6 +33,8 @@ class Disk:
     whole: bool
     writable: bool
     virtual: bool
+    removable: bool
+    ejectable: bool
     mounts: tuple[str, ...]
     media_identity: tuple[str, ...]
     physical_identity: tuple[str, ...]
@@ -40,13 +42,14 @@ class Disk:
     @property
     def prewrite_fingerprint(self):
         return (self.identifier, self.size, self.model, self.protocol, self.internal,
-                self.whole, self.writable, self.virtual, self.media_identity,
-                self.physical_identity)
+                self.whole, self.writable, self.virtual, self.removable, self.ejectable,
+                self.media_identity, self.physical_identity)
 
     @property
     def postwrite_fingerprint(self):
         return (self.identifier, self.size, self.model, self.protocol, self.internal,
-                self.whole, self.writable, self.virtual, self.physical_identity)
+                self.whole, self.writable, self.virtual, self.removable, self.ejectable,
+                self.physical_identity)
 
 
 def run(argv, *, check=True, capture=True):
@@ -75,6 +78,26 @@ def collect_mounts(node):
     elif isinstance(node, list):
         for value in node:
             found.extend(collect_mounts(value))
+    return found
+
+
+def card_reader_media():
+    try:
+        result = run(["/usr/sbin/system_profiler", "SPCardReaderDataType", "-json"])
+        payload = json.loads(result.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        raise FlashError("could not inspect the built-in SD card reader") from exc
+    found = {}
+    for reader in payload.get("SPCardReaderDataType", []):
+        for card in reader.get("_items", []):
+            identifier = explicit_whole_identifier(card.get("bsd_name"))
+            serial = card.get("spcardreader_card_serialnumber")
+            if identifier and serial and card.get("removable_media") == "yes":
+                found[identifier] = {
+                    "serial": str(serial),
+                    "product": str(card.get("spcardreader_card_productname") or "SD card"),
+                    "size": int(card.get("size_in_bytes") or 0),
+                }
     return found
 
 
@@ -108,7 +131,10 @@ def read_disk(identifier, listing=None, listed_whole=False):
     if info.get("DeviceIdentifier") != identifier:
         raise FlashError("diskutil returned a different device than requested")
     mounts = tuple(sorted(set(collect_mounts(listing or {}))))
+    built_in_card = card_reader_media().get(identifier)
     media_identity = (str(info["MediaUUID"]),) if info.get("MediaUUID") else ()
+    if built_in_card:
+        media_identity = ("sd-serial:" + built_in_card["serial"],)
     identity = tuple(str(info[key]) for key in (
         "DeviceTreePath", "DeviceLocation"
     ) if info.get(key))
@@ -123,6 +149,8 @@ def read_disk(identifier, listing=None, listed_whole=False):
         whole=bool(info.get("Whole", False) or listed_whole),
         writable=bool(info.get("WritableMedia", info.get("Writable", False))),
         virtual=bool(info.get("VirtualOrPhysical") == "Virtual" or info.get("Virtual", False)),
+        removable=bool(info.get("RemovableMedia", info.get("Removable", False))),
+        ejectable=bool(info.get("Ejectable", False)),
         mounts=mounts,
         media_identity=media_identity,
         physical_identity=identity,
@@ -141,16 +169,25 @@ def list_external_disks():
         if disk.identifier == root or disk.internal or not disk.whole or disk.virtual:
             continue
         disks.append(disk)
+    for identifier in sorted(card_reader_media()):
+        if any(d.identifier == identifier for d in disks):
+            continue
+        node = diskutil_plist("list", f"/dev/{identifier}")
+        disk = read_disk(identifier, node, listed_whole=True)
+        if disk.identifier != root and disk.whole and not disk.virtual:
+            disks.append(disk)
     return sorted(disks, key=lambda d: d.identifier)
 
 
 def external_physical_identifiers():
     listing = diskutil_plist("list", "external", "physical")
-    return {
+    identifiers = {
         whole_identifier(node.get("DeviceIdentifier"))
         for node in listing.get("AllDisksAndPartitions", [])
         if whole_identifier(node.get("DeviceIdentifier"))
     }
+    identifiers.update(card_reader_media())
+    return identifiers
 
 
 def require_external_physical(identifier):
@@ -204,7 +241,10 @@ def verify_release(image):
 def validate_destination(disk, image_size, root):
     if disk.identifier == root:
         raise FlashError("refusing to overwrite the current macOS system disk")
-    if disk.internal:
+    built_in_sd = (disk.internal and disk.removable and disk.ejectable and
+                   disk.protocol == "Secure Digital" and
+                   disk.media_identity and disk.media_identity[0].startswith("sd-serial:"))
+    if disk.internal and not built_in_sd:
         raise FlashError("refusing to overwrite an internal disk")
     if not disk.whole or disk.virtual or not disk.writable:
         raise FlashError("destination is not a writable external physical whole disk")
@@ -273,7 +313,7 @@ def root_write(image_name, expected_hash, disk_value):
         if sha256_stream(compressed) != expected_hash:
             raise FlashError("image changed after confirmation; nothing was erased")
         compressed.seek(0)
-        fd = os.open(expected.raw_path, os.O_WRONLY)
+        fd = os.open(expected.raw_path, os.O_RDWR)
         try:
             current = require_same_disk(expected)
             validate_destination(current, 1, root_disk_identifier())
@@ -301,9 +341,23 @@ def root_write(image_name, expected_hash, disk_value):
                               end="", flush=True, file=sys.stderr)
                         last_report = now
             os.fsync(fd)
+            os.lseek(fd, 0, os.SEEK_SET)
+            remaining = total
+            verified = hashlib.sha256()
+            while remaining:
+                chunk = os.read(fd, min(CHUNK, remaining))
+                if not chunk:
+                    raise FlashError("SD card ended before pinned-descriptor verification completed")
+                verified.update(chunk)
+                remaining -= len(chunk)
+            verified_hash = verified.hexdigest()
+            if verified_hash != digest.hexdigest():
+                raise FlashError(
+                    f"write verification failed: expected {digest.hexdigest()}, got {verified_hash}")
         finally:
             os.close(fd)
-    print(json.dumps({"size": total, "sha256": digest.hexdigest()}, separators=(",", ":")))
+    print(json.dumps({"size": total, "sha256": digest.hexdigest(),
+                      "verified_sha256": verified_hash}, separators=(",", ":")))
 
 
 def root_read(size_value, expected_hash, disk_value):
@@ -413,6 +467,8 @@ def flash_image(image, expected_compressed_hash, disk):
          "--root-write", str(image), expected_compressed_hash, disk_json(disk)],
         check=True, stdout=subprocess.PIPE)
     payload = json.loads(result.stdout)
+    if payload.get("verified_sha256") != payload.get("sha256"):
+        raise FlashError("privileged writer did not return a valid pinned-descriptor verification")
     return int(payload["size"]), str(payload["sha256"])
 
 
@@ -467,7 +523,7 @@ def main(argv=None):
     parser.add_argument("--image", type=pathlib.Path, help="release .img.xz (defaults to the sole image in dist/)")
     parser.add_argument("--device", help="preselect an external whole disk such as /dev/disk4")
     parser.add_argument("--dry-run", action="store_true", help="perform discovery, checksum, and confirmations without writing")
-    parser.add_argument("--skip-readback", action="store_true", help="skip full post-write readback verification (not recommended)")
+    parser.add_argument("--skip-readback", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
         raise FlashError("this safety-focused release supports macOS diskutil; no disk was touched")
@@ -501,10 +557,7 @@ def main(argv=None):
         written, raw_hash = flash_image(image, release_hash, current)
         if written != image_size:
             raise FlashError("written byte count did not match the validated image size")
-        if not args.skip_readback:
-            verify_written(current, written, raw_hash)
-        else:
-            print("WARNING: full readback verification was skipped by request.")
+        print(f"Write verified through the pinned raw descriptor: {raw_hash}")
     except BaseException:
         eject_same_disk(current, strict=False)
         raise

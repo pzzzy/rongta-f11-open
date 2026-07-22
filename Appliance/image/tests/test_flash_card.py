@@ -23,6 +23,7 @@ def disk(**changes):
         identifier="disk9", path="/dev/disk9", raw_path="/dev/rdisk9",
         model="Test SD Card", size=32 * 1024**3, protocol="USB",
         internal=False, whole=True, writable=True, virtual=False,
+        removable=True, ejectable=True,
         mounts=("/Volumes/TEST",),
         media_identity=("test-media-uuid",),
         physical_identity=("IODeviceTree:/test/reader",),
@@ -76,6 +77,20 @@ class FlashCardTests(unittest.TestCase):
         self.assertEqual(parsed.media_identity, ())
         with self.assertRaises(flash.FlashError):
             flash.validate_destination(parsed, 4096, "disk3")
+
+    def test_builtin_removable_sd_is_allowed_but_internal_drive_is_not(self):
+        card = disk(
+            internal=True, protocol="Secure Digital", removable=True, ejectable=True,
+            media_identity=("sd-serial:0x1234",),
+            physical_identity=("IODeviceTree:/builtin/sdreader",),
+        )
+        flash.validate_destination(card, 4096, "disk3")
+        with self.assertRaises(flash.FlashError):
+            flash.validate_destination(dataclasses.replace(card, protocol="USB"), 4096, "disk3")
+        with self.assertRaises(flash.FlashError):
+            flash.validate_destination(dataclasses.replace(card, removable=False), 4096, "disk3")
+        with self.assertRaises(flash.FlashError):
+            flash.validate_destination(dataclasses.replace(card, media_identity=("uuid",)), 4096, "disk3")
 
     def test_explicit_device_must_be_in_external_physical_listing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -189,7 +204,7 @@ class FlashCardTests(unittest.TestCase):
             return mock.Mock(stdout=b'', stderr=b'')
         with tempfile.TemporaryDirectory() as tmp:
             image, _ = self.make_image(tmp)
-            worker = mock.Mock(stdout=b'{"size":10000,"sha256":"abc"}')
+            worker = mock.Mock(stdout=b'{"size":10000,"sha256":"abc","verified_sha256":"abc"}')
             with mock.patch.object(flash, "run", side_effect=fake_run), \
                  mock.patch.object(flash, "require_same_disk", return_value=candidate) as identity, \
                  mock.patch.object(flash.subprocess, "run", return_value=worker):
@@ -278,6 +293,7 @@ class FlashCardTests(unittest.TestCase):
                 flash.root_write(str(image), flash.expected_checksum(image), flash.disk_json(candidate))
             result = json.loads(output.getvalue())
             self.assertEqual(result["size"], len(payload))
+            self.assertEqual(result["verified_sha256"], hashlib.sha256(payload).hexdigest())
             self.assertEqual(target.read_bytes()[:len(payload)], payload)
             output = io.StringIO()
             with mock.patch.object(flash.os, "geteuid", return_value=0), \
