@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+LED_ROOT=${F11_LED_ROOT:-/sys/class/leds/ACT}
+MARKER_DIR=${F11_PRINT_MARKER_DIR:-/run/f11-print-led}
+LPSTAT=${F11_LPSTAT:-/usr/bin/lpstat}
+QUEUE=Rongta_F11_Media
+INTERVAL=${F11_LED_INTERVAL:-0.10}
+MAX_ITERATIONS=${F11_LED_MAX_ITERATIONS:-0}
+
+[[ -d $LED_ROOT && -w $LED_ROOT/trigger && -w $LED_ROOT/brightness ]] || {
+  printf 'physical ACT LED is unavailable\n' >&2
+  exit 1
+}
+install -d -m0770 "$MARKER_DIR"
+[[ -x $LPSTAT ]] || { printf 'lpstat is unavailable\n' >&2; exit 1; }
+
+led_off() {
+  printf 'none\n' >"$LED_ROOT/trigger"
+  printf '0\n' >"$LED_ROOT/brightness"
+}
+led_blink() {
+  printf 'timer\n' >"$LED_ROOT/trigger"
+  [[ -w $LED_ROOT/delay_on ]] && printf '180\n' >"$LED_ROOT/delay_on"
+  [[ -w $LED_ROOT/delay_off ]] && printf '180\n' >"$LED_ROOT/delay_off"
+}
+marker_live() {
+  local marker pid live=1
+  shopt -s nullglob
+  for marker in "$MARKER_DIR"/job-*; do
+    pid=${marker##*/job-}
+    if [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      live=0
+    else
+      rm -f -- "$marker"
+    fi
+  done
+  return "$live"
+}
+cups_processing() {
+  local state
+  state=$($LPSTAT -p "$QUEUE" 2>/dev/null) || return 1
+  [[ $state == "printer $QUEUE is now printing "* ]]
+}
+cleanup() { led_off || true; }
+trap cleanup EXIT
+trap 'exit 0' INT TERM HUP
+
+led_off
+active=0
+iterations=0
+while :; do
+  if marker_live || { [[ $active -eq 1 ]] && cups_processing; }; then
+    if [[ $active -eq 0 ]]; then led_blink; active=1; fi
+  else
+    if [[ $active -eq 1 ]]; then led_off; active=0; fi
+  fi
+  ((iterations+=1))
+  if [[ $MAX_ITERATIONS -gt 0 && $iterations -ge $MAX_ITERATIONS ]]; then exit 0; fi
+  sleep "$INTERVAL"
+done

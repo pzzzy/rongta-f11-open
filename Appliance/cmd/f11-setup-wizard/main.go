@@ -32,6 +32,31 @@ const (
 	defaultHelperSocket = "/run/f11-setup/helper.sock"
 )
 
+var networkEvidencePath = "/var/lib/f11-setup/network-verification-evidence"
+
+func writeNetworkEvidence(category string) {
+	allowed := map[string]bool{"dial_error": true, "request_error": true, "decode_error": true, "call_error": true, "helper_rejected": true, "missing_connected_flag": true, "recovery_ap": true, "verified": true}
+	if allowed[category] {
+		_ = os.WriteFile(networkEvidencePath, []byte(category+"\n"), 0o600)
+	}
+}
+
+func helperErrorCategory(err error) string {
+	if err == nil {
+		return "verified"
+	}
+	switch err.Error() {
+	case "setup helper unavailable":
+		return "dial_error"
+	case "setup helper request failed":
+		return "request_error"
+	case "invalid setup helper response":
+		return "decode_error"
+	default:
+		return "call_error"
+	}
+}
+
 type stateStore interface {
 	Load() (setupstate.State, error)
 	Save(setupstate.State) error
@@ -191,6 +216,9 @@ func (h unixHelper) Call(ctx context.Context, req helperRequest) (helperResponse
 	deadline := time.Now().Add(h.timeout)
 	_ = c.SetDeadline(deadline)
 	if e = json.NewEncoder(c).Encode(req); e != nil {
+		return helperResponse{}, errors.New("setup helper request failed")
+	}
+	if cw, ok := c.(interface{ CloseWrite() error }); !ok || cw.CloseWrite() != nil {
 		return helperResponse{}, errors.New("setup helper request failed")
 	}
 	return decodeHelperResponse(c)
@@ -409,7 +437,18 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		if r.Form.Get("use_current") == "yes" {
 			resp, e := a.helper.Call(r.Context(), helperRequest{Op: "wifi_status"})
-			if e != nil || !resp.OK || resp.Data["connected"] != true || resp.Data["recovery_ap"] != false {
+			category := "verified"
+			if e != nil {
+				category = helperErrorCategory(e)
+			} else if !resp.OK {
+				category = "helper_rejected"
+			} else if resp.Data["connected"] != true {
+				category = "missing_connected_flag"
+			} else if resp.Data["recovery_ap"] != false {
+				category = "recovery_ap"
+			}
+			writeNetworkEvidence(category)
+			if category != "verified" {
 				http.Error(w, "No active home Wi-Fi connection was verified", http.StatusConflict)
 				return
 			}

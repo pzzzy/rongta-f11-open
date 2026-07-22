@@ -26,6 +26,7 @@ const (
 
 var physicalAttemptPath = "/var/lib/f11-setup/physical-test-attempted"
 var wifiStatusEvidencePath = "/var/lib/f11-setup/wifi-status-evidence.json"
+var printerProbeEvidencePath = "/var/lib/f11-setup/printer-probe-evidence.json"
 
 func writeWiFiStatusEvidence(commandOK, stateConnected, recoveryAP bool, fields int) {
 	b, err := json.Marshal(map[string]any{
@@ -35,6 +36,26 @@ func writeWiFiStatusEvidence(commandOK, stateConnected, recoveryAP bool, fields 
 	if err == nil {
 		_ = os.WriteFile(wifiStatusEvidencePath, append(b, '\n'), 0o600)
 	}
+}
+
+func writePrinterProbeEvidence(backendOK, plannerOK bool, lines, uriMatches, parsed, plannerExit, plannerStderrBytes int, directShape, modelF11 bool) {
+	b, err := json.Marshal(map[string]any{
+		"backend_ok": backendOK, "planner_ok": plannerOK, "line_count": lines,
+		"uri_match_count": uriMatches, "parsed_count": parsed,
+		"planner_exit": plannerExit, "planner_stderr_bytes": plannerStderrBytes,
+		"direct_shape": directShape, "model_f11": modelF11,
+	})
+	if err == nil {
+		_ = os.WriteFile(printerProbeEvidencePath, append(b, '\n'), 0o600)
+	}
+}
+
+func commandFailureEvidence(err error) (int, int) {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), len(exitErr.Stderr)
+	}
+	return -1, 0
 }
 
 type request struct {
@@ -300,24 +321,36 @@ func backendKey() string { return backendPath }
 func (s *server) probe(ctx context.Context, fail func(string, string, string) response) response {
 	o, e := s.run(ctx, []string{backendPath}, nil)
 	if e != nil {
+		exit, stderrBytes := commandFailureEvidence(e)
+		writePrinterProbeEvidence(false, false, 0, 0, 0, exit, stderrBytes, false, false)
 		return s.err(e, fail)
+	}
+	lines := strings.Split(strings.TrimSpace(string(o)), "\n")
+	directShape, modelF11 := false, false
+	if len(lines) == 1 {
+		directShape = strings.HasPrefix(lines[0], "direct usb:")
+		_, modelF11 = parseUSBLine(lines[0])
 	}
 	planned, e := s.run(ctx, []string{plannerPath}, o)
 	if e != nil {
+		exit, stderrBytes := commandFailureEvidence(e)
+		writePrinterProbeEvidence(true, false, len(lines), 0, 0, exit, stderrBytes, directShape, modelF11)
 		return fail("ambiguous_printer", "Exactly one Rongta F11 printer must be present.", "Connect one Rongta F11 printer and retry.")
 	}
 	uri := strings.TrimSpace(string(planned))
-	lines := strings.Split(strings.TrimSpace(string(o)), "\n")
 	var found []printer
+	uriMatches := 0
 	for _, line := range lines {
 		if !strings.Contains(line, uri) {
 			continue
 		}
+		uriMatches++
 		p, ok := parseUSBLine(line)
 		if ok {
 			found = append(found, p)
 		}
 	}
+	writePrinterProbeEvidence(true, true, len(lines), uriMatches, len(found), 0, 0, directShape, modelF11)
 	if len(found) != 1 {
 		return fail("ambiguous_printer", "Exactly one Rongta F11 printer must be present.", "Connect one Rongta F11 printer and retry.")
 	}

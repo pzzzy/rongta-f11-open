@@ -18,7 +18,8 @@ for executable in \
   usr/local/lib/f11-image/install-twitch-authorization \
   usr/local/lib/f11-image/network-recover \
   usr/local/lib/f11-image/verify-eventsub \
-  usr/local/lib/f11/provision-printer; do
+  usr/local/lib/f11/provision-printer \
+  usr/local/lib/f11/print-led; do
   [[ -f $OUT/rootfs/$executable ]] || { echo "missing executable $executable" >&2; exit 1; }
   chmod 0755 "$OUT/rootfs/$executable"
 done
@@ -44,6 +45,7 @@ install -m0644 cups/f11.ppd "$OUT/rootfs/usr/share/f11-image/f11.ppd"
 install -m0644 cups/0fe6-811e.usb-quirks "$OUT/rootfs/usr/share/f11-image/0fe6-811e.usb-quirks"
 install -m0644 systemd/twitch-banner.service "$OUT/rootfs/usr/share/f11-image/twitch-banner.service"
 install -m0644 systemd/f11-health.service "$OUT/rootfs/usr/share/f11-image/f11-health.service"
+install -m0644 systemd/f11-print-led.service "$OUT/rootfs/usr/share/f11-image/f11-print-led.service"
 for u in f11-setup-wizard.service f11-setup-helper.service; do [[ -f systemd/$u ]] && install -m0644 "systemd/$u" "$OUT/rootfs/usr/share/f11-image/$u"; done
 cp "$LOCK" "$OUT/meta/base-image.lock"
 git -C "$ROOT/.." rev-parse HEAD >"$OUT/meta/source-commit"

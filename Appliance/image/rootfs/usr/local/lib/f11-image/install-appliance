@@ -17,11 +17,12 @@ install -d -o root -g root -m0755 /usr/lib/cups/filter /usr/share/ppd /usr/share
 install -m0755 /usr/local/lib/f11/pdftof11 /usr/lib/cups/filter/pdftof11
 install -m0644 /usr/share/f11-image/f11.ppd /usr/share/ppd/f11.ppd
 install -m0644 /usr/share/f11-image/0fe6-811e.usb-quirks /usr/share/cups/usb/0fe6-811e.usb-quirks
-for unit in twitch-banner.service f11-health.service f11-setup-wizard.service f11-setup-helper.service; do
+for unit in twitch-banner.service f11-health.service f11-print-led.service f11-setup-wizard.service f11-setup-helper.service; do
   [[ -f /usr/share/f11-image/$unit ]] && install -m0644 "/usr/share/f11-image/$unit" "/etc/systemd/system/$unit"
 done
 systemctl enable cups.service avahi-daemon.service NetworkManager.service f11-first-boot.service
 systemctl enable twitch-banner.service
+systemctl enable f11-print-led.service
 systemctl disable f11-health.service 2>/dev/null || true
 systemctl enable f11-setup-helper.service
 systemctl disable f11-setup-wizard.service 2>/dev/null || true

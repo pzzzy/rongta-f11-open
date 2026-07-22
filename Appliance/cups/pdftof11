@@ -20,7 +20,11 @@ CANVAS_HEIGHT=$((10#${CANVAS##* }))
 [[ $CANVAS_WIDTH -ge 1 && $CANVAS_WIDTH -le 1664 ]] || { echo 'ERROR: invalid media width' >&2; exit 1; }
 [[ $CANVAS_HEIGHT -ge 20 && $CANVAS_HEIGHT -le 2233 ]] || { echo 'ERROR: invalid media height' >&2; exit 1; }
 TMP=$(mktemp -d "${F11_OUTPUT_DIR:-$F11_SPOOL}/filter.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+PRINT_MARKER_DIR=${F11_PRINT_MARKER_DIR:-/run/f11-print-led}
+PRINT_MARKER=''
+cleanup() { [[ -z $PRINT_MARKER ]] || rm -f -- "$PRINT_MARKER"; rm -rf "$TMP"; }
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
 if [[ $# -ge 6 && -n ${6:-} ]]; then
   [[ $(stat -c %s "$6") -le 67108864 ]] || { echo 'ERROR: job too large' >&2; exit 1; }
   cp -- "$6" "$TMP/input.pdf"
@@ -60,6 +64,9 @@ for ((copy=1; copy<=COPIES; copy++)); do
     printf '%s\n' "$TMP/page-$page.f11" >>"$MANIFEST"
   done
 done
+[[ -d $PRINT_MARKER_DIR && -w $PRINT_MARKER_DIR ]] || { echo 'ERROR: print LED marker unavailable' >&2; exit 1; }
+PRINT_MARKER="$PRINT_MARKER_DIR/job-$$"
+: >"$PRINT_MARKER"
 while IFS= read -r stream; do
   cat -- "$stream"
 done <"$MANIFEST"
