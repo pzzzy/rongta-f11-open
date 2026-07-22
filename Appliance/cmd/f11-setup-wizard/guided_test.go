@@ -48,6 +48,7 @@ func guidedHandler(t *testing.T) (http.Handler, *memoryState, *fakeHelper, *fake
 	t.Helper()
 	st := &memoryState{state: setupstate.New()}
 	hp := &fakeHelper{responses: map[string]helperResponse{
+		"wifi_status":       {OK: true, Data: map[string]any{"connected": true, "recovery_ap": false}},
 		"wifi_connect":      {OK: true, Data: map[string]any{"connected": true}},
 		"printer_probe":     {OK: true, Printer: helperPrinter{Present: true, Model: "Rongta F11"}},
 		"printer_configure": {OK: true, Data: map[string]any{"configured": true, "queue": "Rongta_F11_Media"}},
@@ -78,6 +79,21 @@ func postAction(t *testing.T, h http.Handler, cookie *http.Cookie, path string, 
 	req.AddCookie(cookie)
 	h.ServeHTTP(r, req)
 	return r
+}
+
+func TestExistingStationConnectionCompletesNetworkWithoutCredentials(t *testing.T) {
+	h, state, helper, _, _ := guidedHandler(t)
+	cookie := authenticate(t, h)
+	if r := postAction(t, h, cookie, "/action/welcome", url.Values{}); r.Code != http.StatusSeeOther {
+		t.Fatal(r.Code)
+	}
+	r := postAction(t, h, cookie, "/action/network", url.Values{"use_current": {"yes"}})
+	if r.Code != http.StatusSeeOther || !state.state.Completed(setupstate.CheckpointNetwork) {
+		t.Fatalf("network status=%d state=%#v", r.Code, state.state)
+	}
+	if helper.calls[len(helper.calls)-1].Op != "wifi_status" {
+		t.Fatalf("calls=%+v", helper.calls)
+	}
 }
 
 func TestGuidedStagesAdvanceOnlyAfterVerifiedSuccess(t *testing.T) {

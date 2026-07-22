@@ -8,10 +8,20 @@ if set(c)-set(allowed): raise SystemExit('unknown settings section')
 for section,values in c.items():
  if not isinstance(values,dict) or set(values)-allowed[section]: raise SystemExit('unknown settings key')
 d=c.get('device',{}); w=c.get('wifi',{}); a=c.get('access',{})
-host=d.get('hostname','f11-setup')
+host=d.get('hostname','f11-setup'); country=d.get('country','US')
 if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',host): raise SystemExit('invalid hostname')
+if not re.fullmatch(r'[A-Z]{2}',country): raise SystemExit('invalid Wi-Fi country')
 subprocess.run(['hostnamectl','set-hostname',host],check=True)
 if d.get('timezone'): subprocess.run(['timedatectl','set-timezone',d['timezone']],check=True)
+subprocess.run(['raspi-config','nonint','do_wifi_country',country],check=True)
+if a.get('enable_ssh'):
+ key=a.get('ssh_authorized_key','')
+ if key and not re.fullmatch(r'(ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: .*)?',key): raise SystemExit('invalid SSH public key')
+ subprocess.run(['systemctl','enable','--now','ssh.service'],check=True)
+ boot='/boot/firmware' if os.path.isdir('/boot/firmware') else '/boot'; open(boot+'/ssh','a').close()
+ if key:
+  os.makedirs('/root/.ssh',mode=0o700,exist_ok=True)
+  fd=os.open('/root/.ssh/authorized_keys',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600); os.write(fd,(key+'\n').encode()); os.close(fd)
 ssid=w.get('ssid',''); password=w.get('password','')
 if bool(ssid)!=bool(password): raise SystemExit('wifi ssid and password must both be set')
 if ssid:
@@ -19,12 +29,5 @@ if ssid:
  subprocess.run(['nmcli','connection','delete','f11-home'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  subprocess.run(['nmcli','connection','add','type','wifi','ifname','wlan0','con-name','f11-home','ssid',ssid],check=True,stdout=subprocess.DEVNULL)
  subprocess.run(['nmcli','connection','modify','f11-home','wifi-sec.key-mgmt','wpa-psk','wifi-sec.psk',password,'connection.autoconnect','yes','connection.autoconnect-priority','100'],check=True,stdout=subprocess.DEVNULL)
- subprocess.run(['nmcli','connection','up','f11-home'],check=True,stdout=subprocess.DEVNULL)
-if a.get('enable_ssh'):
- key=a.get('ssh_authorized_key','')
- if key and not re.fullmatch(r'(ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: .*)?',key): raise SystemExit('invalid SSH public key')
- subprocess.run(['systemctl','enable','ssh.service'],check=True)
- if key:
-  os.makedirs('/root/.ssh',mode=0o700,exist_ok=True)
-  fd=os.open('/root/.ssh/authorized_keys',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600); os.write(fd,(key+'\n').encode()); os.close(fd)
+ subprocess.run(['nmcli','connection','up','f11-home'],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 print('settings imported')

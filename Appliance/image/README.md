@@ -56,7 +56,7 @@ Run `./image/personalize-card.py --help` for hostname, regional, and SSH-key opt
 
 Alternatively, copy `settings.example.toml` to the boot partition as `f11-settings.toml` after flashing. It is imported once and deleted. Do not commit or distribute a populated settings file.
 
-Without settings, first boot creates a per-device `F11-SETUP-*` WPA2 network. Read `F11-SETUP.txt` on the boot partition for its random password and setup code. Connect and open `http://f11-setup.local:8080/` or `http://10.42.0.1:8080/`.
+Without settings, first boot creates a per-device `F11-SETUP-*` WPA2 network. Read `F11-SETUP.txt` on the boot partition for its random password and setup code. Connect and open `http://f11-setup.local:8080/` or `http://10.42.0.1:8080/`. If the device is already reachable over home Wi-Fi, the wizard verifies the active station connection without asking for the existing password; the alternative credential form remains available under “Connect to different Wi-Fi.”
 
 ## Wizard
 
