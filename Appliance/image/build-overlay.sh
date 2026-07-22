@@ -7,6 +7,10 @@ LOCK="$ROOT/image/base-image.lock"
 OUT=${1:-"$ROOT/../dist/overlay"}
 OUT=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$OUT")
 [[ -f $LOCK ]] || { echo 'missing base-image.lock' >&2; exit 1; }
+if find "$ROOT/image/rootfs" \( -type d -name __pycache__ -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) -print -quit | grep -q .; then
+  echo 'generated Python cache/bytecode found in image rootfs source' >&2
+  exit 1
+fi
 rm -rf "$OUT"
 install -d -m0755 "$OUT/rootfs" "$OUT/bootfs" "$OUT/meta" "$OUT/rootfs/usr/local/bin" "$OUT/rootfs/usr/local/lib/f11" "$OUT/rootfs/usr/share/f11-image" "$OUT/rootfs/etc/systemd/system/multi-user.target.wants"
 cp -a "$ROOT/image/rootfs/." "$OUT/rootfs/"
@@ -56,6 +60,7 @@ python3 - "$OUT" <<'PY'
 import hashlib,json,os,pathlib,sys
 root=pathlib.Path(sys.argv[1]).resolve(); files=[]
 for p in sorted(root.rglob('*')):
+    if p.name == '__pycache__' or p.suffix in {'.pyc','.pyo'}: raise SystemExit(f'generated Python cache/bytecode in overlay: {p.relative_to(root)}')
     if p.is_file() and p.name not in {'SHA256SUMS','manifest.json'}:
         b=p.read_bytes(); files.append({'path':str(p.relative_to(root)),'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'mode':oct(p.stat().st_mode & 0o777)})
 (root/'meta/manifest.json').write_text(json.dumps({'schema':1,'target':'linux/arm/v6','files':files},indent=2)+'\n')

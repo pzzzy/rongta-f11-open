@@ -61,4 +61,6 @@ assert 'ReadWritePaths=/sys/class/leds/ACT' in led_unit and 'CapabilityBoundingS
 assert 'Rongta_F11_Media' in led_daemon and "printf 'timer" in led_daemon and "printf '0" in led_daemon
 assert 'systemctl enable f11-print-led.service' in install
 assert "dtparam=act_led_trigger=none" in custom
+assert "generated Python cache/bytecode found in image rootfs source" in over
+assert "generated Python cache/bytecode in overlay" in over
 print('image architecture: PASS')
