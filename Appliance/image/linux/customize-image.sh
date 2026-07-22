@@ -25,6 +25,7 @@ e2fsck -fy "${loop}p2"; resize2fs "${loop}p2"
 install -d "$root" "$boot"; mount "${loop}p2" "$root"; mount "${loop}p1" "$boot"
 rsync -aH --no-acls --no-xattrs "$overlay/rootfs/" "$root/"
 rsync -aH --no-acls --no-xattrs "$overlay/bootfs/" "$boot/"
+grep -Fqx 'dtparam=act_led_trigger=none' "$boot/config.txt" || printf '\n# F11: keep ACT LED dark except while the print LED service blinks it.\ndtparam=act_led_trigger=none\n' >>"$boot/config.txt"
 install -m0755 "$(command -v qemu-arm-static)" "$root/usr/bin/qemu-arm-static"
 mount --bind /dev "$root/dev"; mount -t devpts devpts "$root/dev/pts"; mount -t proc proc "$root/proc"; mount -t sysfs sys "$root/sys"
 packages=$(sed -n 's/^PACKAGES=//p' "$overlay/meta/base-image.lock" | tr ',' ' ')
@@ -35,7 +36,7 @@ chroot "$root" /usr/bin/qemu-arm-static /bin/bash /usr/local/lib/f11-image/insta
 chroot "$root" /usr/bin/qemu-arm-static /usr/bin/dpkg-query -W '-f=${Package}\t${Version}\t${Architecture}\n' | LC_ALL=C sort >"$root/usr/share/f11-image/packages.tsv"
 rm -f "$root/usr/bin/qemu-arm-static" "$root/etc/machine-id" "$root/var/lib/dbus/machine-id"
 : >"$root/etc/machine-id"; rm -f "$root/etc/ssh/ssh_host_"* "$root/var/log/"*.log; rm -rf "$root/var/cache/apt/archives/"* "$root/var/lib/apt/lists/"*
-systemd-analyze --root="$root" verify f11-first-boot.service f11-setup-helper.service f11-setup-wizard.service f11-health.service twitch-banner.service
+systemd-analyze --root="$root" verify f11-first-boot.service f11-setup-helper.service f11-setup-wizard.service f11-health.service f11-print-led.service twitch-banner.service
 file "$root/usr/local/bin/twitch-banner" | grep -Fq 'ELF 32-bit LSB executable, ARM'
 cp "$root/usr/share/f11-image/packages.tsv" "$out.packages.tsv"
 sync; umount "$root/dev/pts" "$root/dev" "$root/proc" "$root/sys" "$boot" "$root"; losetup -d "$loop"; trap - EXIT

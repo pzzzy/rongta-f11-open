@@ -3,11 +3,17 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +88,8 @@ func postAction(t *testing.T, h http.Handler, cookie *http.Cookie, path string, 
 }
 
 func TestExistingStationConnectionCompletesNetworkWithoutCredentials(t *testing.T) {
+	networkEvidencePath = filepath.Join(t.TempDir(), "network-evidence")
+	t.Cleanup(func() { networkEvidencePath = "/var/lib/f11-setup/network-verification-evidence" })
 	h, state, helper, _, _ := guidedHandler(t)
 	cookie := authenticate(t, h)
 	if r := postAction(t, h, cookie, "/action/welcome", url.Values{}); r.Code != http.StatusSeeOther {
@@ -93,6 +101,10 @@ func TestExistingStationConnectionCompletesNetworkWithoutCredentials(t *testing.
 	}
 	if helper.calls[len(helper.calls)-1].Op != "wifi_status" {
 		t.Fatalf("calls=%+v", helper.calls)
+	}
+	evidence, err := os.ReadFile(networkEvidencePath)
+	if err != nil || string(evidence) != "verified\n" {
+		t.Fatalf("evidence=%q err=%v", evidence, err)
 	}
 }
 
@@ -189,6 +201,49 @@ func TestMutationsRequireCSRFAndBoundedBodies(t *testing.T) {
 	h.ServeHTTP(r, req)
 	if r.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("large=%d", r.Code)
+	}
+}
+
+func TestUnixHelperHalfClosesSingleRequest(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "f11-helper-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "h.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	done := make(chan error, 1)
+	go func() {
+		c, err := l.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer c.Close()
+		var req helperRequest
+		d := json.NewDecoder(c)
+		if err = d.Decode(&req); err != nil {
+			done <- err
+			return
+		}
+		var extra any
+		if err = d.Decode(&extra); !errors.Is(err, io.EOF) {
+			done <- fmt.Errorf("request did not end at EOF: %v", err)
+			return
+		}
+		err = json.NewEncoder(c).Encode(helperResponse{OK: true, Data: map[string]any{"connected": true, "recovery_ap": false}})
+		done <- err
+	}()
+	resp, err := (unixHelper{path: path, timeout: time.Second}).Call(context.Background(), helperRequest{Op: "wifi_status"})
+	if err != nil || !resp.OK || resp.Data["connected"] != true {
+		t.Fatalf("resp=%+v err=%v", resp, err)
+	}
+	if err = <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -16,5 +16,5 @@ lpadmin -p "$queue" -v "$uri" -P /usr/share/ppd/f11.ppd -o printer-is-shared=tru
 cupsaccept "$queue"
 cupsenable "$queue"
 F11_QUEUE="$queue" /usr/local/lib/f11/f11-health
-systemctl enable f11-health.service
+systemctl enable --no-reload f11-health.service
 printf 'configured queue=%s\n' "$queue"

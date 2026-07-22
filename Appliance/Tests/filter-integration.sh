@@ -70,7 +70,8 @@ PY
 qpdf --warning-exit-0 "$TMP/rotated.pdf" "$TMP/rotated-fixed.pdf"
 qpdf --check "$TMP/rotated-fixed.pdf" >/dev/null
 [[ $("$ROOT/scripts/pdf-page-height.py" --dimensions "$TMP/rotated-fixed.pdf" 1) == '1218 812' ]]
-mkdir "$TMP/spool"
+mkdir "$TMP/spool" "$TMP/print-markers"
+export F11_PRINT_MARKER_DIR="$TMP/print-markers"
 F11D="$TMP/f11d-real" F11_SPOOL="$TMP/spool" F11_OUTPUT_DIR="$TMP/spool" PAGE_HEIGHT="$ROOT/scripts/pdf-page-height.py" MEDIA_CANVAS="$ROOT/scripts/media-canvas.py" \
   "$ROOT/cups/pdftof11" 99 tester clean 2 '' "$TMP/clean.pdf" >"$TMP/output.f11" 2>"$TMP/filter.log"
 python3 - "$TMP/output.f11" "$TMP/jobs" <<'PY'

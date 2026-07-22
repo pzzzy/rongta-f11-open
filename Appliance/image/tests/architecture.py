@@ -31,6 +31,7 @@ for importer_name in ('import-envelope', 'import-settings'):
     assert "systemctl','enable','ssh.service" in importer
     assert "systemctl','start','ssh.service" in importer and "check=False" in importer
     assert "open(boot+'/ssh','a').close()" in importer
+    assert "systemctl','try-restart','avahi-daemon.service" in importer
     assert importer.index("'/usr/bin/ssh-keygen','-A'") < importer.index("systemctl','enable','ssh.service") < importer.index("nmcli','connection','up','f11-home")
 assert '(cd "$DIST" && sha256 "$product-$version.img.xz"' in build
 assert 'sha256 "$DIST/$product-$version.img.xz"' not in build
@@ -52,4 +53,12 @@ assert '/etc/twitch-banner' in helper_unit and '/var/lib/twitch-banner' in helpe
 assert 'Group=f11-setup' in helper_unit and 'RuntimeDirectory=f11-setup' in helper_unit and 'RuntimeDirectoryMode=0750' in helper_unit
 assert 'http://f11-setup.local:8080/' in first and 'http://10.42.0.1:8080/' in first
 assert not (r/'image/settings.toml').exists()
+assert 'PrivateDevices=no' in helper_unit
+assert 'RestrictAddressFamilies=AF_UNIX AF_NETLINK' in helper_unit
+led_unit=(r/'systemd/f11-print-led.service').read_text()
+led_daemon=(r/'image/rootfs/usr/local/lib/f11/print-led').read_text()
+assert 'ReadWritePaths=/sys/class/leds/ACT' in led_unit and 'CapabilityBoundingSet=' in led_unit
+assert 'Rongta_F11_Media' in led_daemon and "printf 'timer" in led_daemon and "printf '0" in led_daemon
+assert 'systemctl enable f11-print-led.service' in install
+assert "dtparam=act_led_trigger=none" in custom
 print('image architecture: PASS')
