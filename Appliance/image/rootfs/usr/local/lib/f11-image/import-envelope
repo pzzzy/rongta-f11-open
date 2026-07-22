@@ -21,7 +21,9 @@ if key:
  if not re.fullmatch(r'(ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: .*)?',key): raise SystemExit('invalid SSH key')
  os.makedirs('/root/.ssh',mode=0o700,exist_ok=True); open('/root/.ssh/authorized_keys','w').write(key+'\n'); os.chmod('/root/.ssh/authorized_keys',0o600)
  boot='/boot/firmware' if os.path.isdir('/boot/firmware') else '/boot'; open(boot+'/ssh','a').close()
- subprocess.run(['systemctl','enable','--now','ssh.service'],check=True)
+ subprocess.run(['/usr/bin/ssh-keygen','-A'],check=True)
+ subprocess.run(['systemctl','enable','ssh.service'],check=True)
+ subprocess.run(['systemctl','start','ssh.service'],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 w=c.get('wifi',{})
 if w:
  if set(w)-{'ssid','password'} or not 1<=len(w.get('ssid','').encode())<=32 or not 8<=len(w.get('password',''))<=63: raise SystemExit('invalid wifi settings')
