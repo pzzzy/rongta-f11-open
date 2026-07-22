@@ -23,6 +23,13 @@ assert 'os.open(expected.raw_path, os.O_RDWR)' in flasher
 assert 'os.lseek(fd, 0, os.SEEK_SET)' in flasher
 assert 'verified_sha256' in flasher
 assert '"/bin/dd"' not in flasher
+for importer_name in ('import-envelope', 'import-settings'):
+    importer=(r/'image/rootfs/usr/local/lib/f11-image'/importer_name).read_text()
+    assert "['raspi-config','nonint','do_wifi_country'" in importer
+    assert "check=False" in importer and "['nmcli','connection','up','f11-home']" in importer
+    assert "systemctl','enable','--now','ssh.service" in importer
+    assert "open(boot+'/ssh','a').close()" in importer
+    assert importer.index("systemctl','enable','--now','ssh.service") < importer.index("nmcli','connection','up','f11-home")
 assert '(cd "$DIST" && sha256 "$product-$version.img.xz"' in build
 assert 'sha256 "$DIST/$product-$version.img.xz"' not in build
 assert 'F11_SOURCE_ARCHIVE=/workspace/$REPO/.image-cache/source-host.tar.gz' in (r/'image/macos/build-with-lima.sh').read_text()

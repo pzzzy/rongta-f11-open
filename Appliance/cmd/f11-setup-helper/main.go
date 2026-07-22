@@ -25,6 +25,17 @@ const (
 )
 
 var physicalAttemptPath = "/var/lib/f11-setup/physical-test-attempted"
+var wifiStatusEvidencePath = "/var/lib/f11-setup/wifi-status-evidence.json"
+
+func writeWiFiStatusEvidence(commandOK, stateConnected, recoveryAP bool, fields int) {
+	b, err := json.Marshal(map[string]any{
+		"command_ok": commandOK, "state_connected": stateConnected,
+		"recovery_ap": recoveryAP, "field_count": fields,
+	})
+	if err == nil {
+		_ = os.WriteFile(wifiStatusEvidencePath, append(b, '\n'), 0o600)
+	}
+}
 
 type request struct {
 	Op           string   `json:"op"`
@@ -97,6 +108,26 @@ func (s *server) handle(parent context.Context, r request) response {
 			return s.err(e, fail)
 		}
 		return ok(map[string]any{"networks": strings.Split(strings.TrimSpace(string(o)), "\n")})
+	case "wifi_status":
+		stateOut, e := s.run(ctx, []string{"/usr/bin/nmcli", "-g", "GENERAL.STATE", "device", "show", "wlan0"}, nil)
+		if e != nil {
+			writeWiFiStatusEvidence(false, false, false, 0)
+			return s.err(e, fail)
+		}
+		connectionOut, e := s.run(ctx, []string{"/usr/bin/nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"}, nil)
+		if e != nil {
+			writeWiFiStatusEvidence(false, false, false, 1)
+			return s.err(e, fail)
+		}
+		state := strings.TrimSpace(string(stateOut))
+		connection := strings.TrimSpace(string(connectionOut))
+		connected := strings.HasPrefix(state, "100")
+		recovery := connection == "f11-setup-ap"
+		writeWiFiStatusEvidence(true, connected, recovery, 2)
+		if !connected || connection == "" || connection == "--" || recovery {
+			return fail("station_wifi_not_connected", "The appliance is not connected to home Wi-Fi.", "Enter home Wi-Fi details or reconnect the appliance, then retry.")
+		}
+		return ok(map[string]any{"connected": true, "recovery_ap": false})
 	case "wifi_connect":
 		if e := validateWiFi(r.SSID, r.PSK); e != nil {
 			return fail("invalid_wifi", e.Error(), "Use an SSID of 1–32 bytes and a WPA passphrase of 8–63 characters.")

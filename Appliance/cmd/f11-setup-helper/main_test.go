@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,6 +65,28 @@ func TestWiFiConnectUsesDirectArgvAndDoesNotReturnPSK(t *testing.T) {
 	}
 	if strings.Contains(respJSON(resp), r.PSK) {
 		t.Fatal("psk in response")
+	}
+}
+func TestWiFiStatusAcceptsStationAndRejectsRecoveryAP(t *testing.T) {
+	d := t.TempDir()
+	wifiStatusEvidencePath = filepath.Join(d, "wifi-status.json")
+	t.Cleanup(func() { wifiStatusEvidencePath = "/var/lib/f11-setup/wifi-status-evidence.json" })
+	stateKey := "/usr/bin/nmcli\x00-g\x00GENERAL.STATE\x00device\x00show\x00wlan0"
+	connectionKey := "/usr/bin/nmcli\x00-g\x00GENERAL.CONNECTION\x00device\x00show\x00wlan0"
+	f := &fakeRunner{output: map[string][]byte{stateKey: []byte("100 (connected)\n"), connectionKey: []byte("f11-home\n")}}
+	s := &server{runner: f}
+	good := s.handle(context.Background(), request{Op: "wifi_status"})
+	if !good.OK || good.Data["connected"] != true || good.Data["recovery_ap"] != false {
+		t.Fatalf("station status=%+v", good)
+	}
+	evidence, err := os.ReadFile(wifiStatusEvidencePath)
+	if err != nil || strings.Contains(string(evidence), "f11-home") || !strings.Contains(string(evidence), `"state_connected":true`) {
+		t.Fatalf("unsafe evidence=%q err=%v", evidence, err)
+	}
+	f.output[connectionKey] = []byte("f11-setup-ap\n")
+	bad := s.handle(context.Background(), request{Op: "wifi_status"})
+	if bad.OK {
+		t.Fatalf("recovery AP accepted: %+v", bad)
 	}
 }
 func TestPrinterProbeRefusesAmbiguityAndMasksSerial(t *testing.T) {
