@@ -19,7 +19,9 @@ assert '"$product-$version-source.tar.gz" flash-card.py >SHA256SUMS' in build
 flasher=(r/'image/flash-card.py').read_text()
 assert '--root-write' in flasher and '--root-read' in flasher
 assert 'require_external_physical(expected.identifier)' in flasher
-assert 'os.open(expected.raw_path, os.O_WRONLY)' in flasher
+assert 'os.open(expected.raw_path, os.O_RDWR)' in flasher
+assert 'os.lseek(fd, 0, os.SEEK_SET)' in flasher
+assert 'verified_sha256' in flasher
 assert '"/bin/dd"' not in flasher
 assert '(cd "$DIST" && sha256 "$product-$version.img.xz"' in build
 assert 'sha256 "$DIST/$product-$version.img.xz"' not in build
