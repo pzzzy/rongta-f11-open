@@ -84,10 +84,12 @@ type config struct {
 	ClientID     string
 }
 type session struct {
-	csrf      string
-	expiresAt time.Time
-	flow      *twitchdevice.Flow
-	slowDowns int
+	csrf        string
+	expiresAt   time.Time
+	flow        *twitchdevice.Flow
+	slowDowns   int
+	noticeStage string
+	noticeText  string
 }
 type sessionStore struct {
 	mu       sync.Mutex
@@ -170,6 +172,28 @@ func (s *sessionStore) clearFlow(k string) {
 	v := s.sessions[k]
 	v.flow = nil
 	s.sessions[k] = v
+}
+func (s *sessionStore) setNotice(k, stage, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.sessions[k]
+	if !ok {
+		return
+	}
+	v.noticeStage, v.noticeText = stage, text
+	s.sessions[k] = v
+}
+func (s *sessionStore) popNotice(k string) (string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.sessions[k]
+	if !ok {
+		return "", ""
+	}
+	stage, text := v.noticeStage, v.noticeText
+	v.noticeStage, v.noticeText = "", ""
+	s.sessions[k] = v
+	return stage, text
 }
 
 type helperRequest struct {
@@ -360,12 +384,36 @@ func (a *wizard) home(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Setup state is unavailable", 500)
 		return
 	}
+	changed := false
+	if !st.Completed(setupstate.CheckpointWelcome) {
+		if st.Complete(setupstate.CheckpointWelcome, time.Now()) != nil {
+			generic(w, 500)
+			return
+		}
+		changed = true
+	}
+	if !st.Completed(setupstate.CheckpointNetwork) {
+		resp, err := a.helper.Call(r.Context(), helperRequest{Op: "wifi_status"})
+		if err == nil && resp.OK && resp.Data["connected"] == true && resp.Data["recovery_ap"] == false {
+			if st.Complete(setupstate.CheckpointNetwork, time.Now()) != nil {
+				generic(w, 500)
+				return
+			}
+			writeNetworkEvidence("verified")
+			changed = true
+		}
+	}
+	if changed && a.state.Save(st) != nil {
+		generic(w, 500)
+		return
+	}
 	var pub *twitchdevice.PublicFlow
 	if f, _, yes := a.sessions.flow(k); yes {
 		p := f.Public()
 		pub = &p
 	}
-	render(w, pageData{Title: "Guided setup", Guide: true, CSRF: s.csrf, State: st, Flow: pub, ClientID: a.clientID})
+	errorStage, errorText := a.sessions.popNotice(k)
+	render(w, pageData{Title: "Guided setup", Guide: true, CSRF: s.csrf, State: st, Flow: pub, ClientID: a.clientID, ErrorStage: errorStage, ErrorText: errorText})
 }
 func (a *wizard) status(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -411,6 +459,10 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		generic(w, 500)
 		return
 	}
+	fail := func(stage, text string) {
+		a.sessions.setNotice(key, stage, text)
+		redirect(w, r)
+	}
 	complete := func(cp setupstate.Checkpoint) bool {
 		if e := st.Complete(cp, time.Now()); e != nil || a.state.Save(st) != nil {
 			generic(w, 500)
@@ -418,9 +470,10 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		return true
 	}
+	stage := strings.SplitN(name, "/", 2)[0]
 	need := func(cp setupstate.Checkpoint) bool {
 		if !st.Completed(cp) {
-			http.Error(w, "Complete the previous verified step first", 409)
+			fail(stage, "Complete the previous verified step first.")
 			return false
 		}
 		return true
@@ -449,7 +502,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 			}
 			writeNetworkEvidence(category)
 			if category != "verified" {
-				http.Error(w, "No active home Wi-Fi connection was verified", http.StatusConflict)
+				fail("network", "No active home Wi-Fi connection was verified. Check the appliance connection or choose Change Wi-Fi connection.")
 				return
 			}
 			if complete(setupstate.CheckpointNetwork) {
@@ -459,12 +512,12 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		ssid, psk := r.Form.Get("ssid"), r.Form.Get("wifi_password")
 		if len([]byte(ssid)) < 1 || len([]byte(ssid)) > 32 || len(psk) < 8 || len(psk) > 63 {
-			http.Error(w, "Enter a valid Wi-Fi name and WPA password", 400)
+			fail("network", "Enter a valid Wi-Fi name and WPA password.")
 			return
 		}
 		resp, e := a.helper.Call(r.Context(), helperRequest{Op: "wifi_connect", SSID: ssid, PSK: psk})
 		if e != nil || !resp.OK || resp.Data["connected"] != true {
-			generic(w, 502)
+			fail("network", "The new Wi-Fi connection could not be verified. Recheck the Wi-Fi name and password, then try again.")
 			return
 		}
 		if complete(setupstate.CheckpointNetwork) {
@@ -477,12 +530,16 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		probe, e := a.helper.Call(r.Context(), helperRequest{Op: "printer_probe"})
 		if e != nil || !probe.OK || !probe.Printer.Present {
-			generic(w, 502)
+			if e == nil && probe.Error != nil && probe.Error.Code == "ambiguous_printer" {
+				fail("printer", "No verified F11 was detected. Confirm the printer is powered on and its data cable is connected to the Pi's USB port, then try again.")
+			} else {
+				fail("printer", "The printer could not be verified. Check its power and USB connection, then try again.")
+			}
 			return
 		}
 		cfg, e := a.helper.Call(r.Context(), helperRequest{Op: "printer_configure", Model: "Rongta_F11_Media"})
 		if e != nil || !cfg.OK || cfg.Data["configured"] != true || cfg.Data["queue"] != "Rongta_F11_Media" {
-			generic(w, 502)
+			fail("printer", "The F11 was detected, but its print queue could not be configured. Check the appliance and try again.")
 			return
 		}
 		if complete(setupstate.CheckpointPrinter) {
@@ -496,7 +553,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		id := strings.TrimSpace(r.Form.Get("client_id"))
 		f, e := a.twitch.Start(r.Context(), id)
 		if e != nil {
-			generic(w, 502)
+			fail("twitch", "Twitch authorization could not be started. Check the public Client ID and network connection, then try again.")
 			return
 		}
 		a.sessions.setFlow(key, f)
@@ -508,7 +565,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		f, sl, yes := a.sessions.flow(key)
 		if !yes {
-			http.Error(w, "Start Twitch authorization first", 409)
+			fail("twitch", "Start Twitch authorization first.")
 			return
 		}
 		if sl > 0 {
@@ -517,20 +574,20 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		result, state, e := a.twitch.Poll(r.Context(), f)
 		if e != nil {
 			a.sessions.clearFlow(key)
-			generic(w, 502)
+			fail("twitch", "Twitch authorization could not be checked. Start authorization again.")
 			return
 		}
 		if state == twitchdevice.Pending {
-			http.Error(w, "Twitch authorization is still pending", 409)
+			fail("twitch", "Twitch authorization is still pending. Approve it on the trusted device, then check again.")
 			return
 		}
 		if state == twitchdevice.SlowDown {
 			a.sessions.slow(key)
-			http.Error(w, "Wait longer before retrying", 429)
+			fail("twitch", "Twitch asked the appliance to wait longer before checking again.")
 			return
 		}
 		if state != twitchdevice.Authorized || a.saver.Save(result) != nil {
-			generic(w, 502)
+			fail("twitch", "Twitch authorization was not verified or could not be installed. Start again.")
 			return
 		}
 		a.sessions.clearFlow(key)
@@ -544,7 +601,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		resp, e := a.helper.Call(r.Context(), helperRequest{Op: "service_status"})
 		if e != nil || !resp.OK || resp.Data["status"] != "active" || resp.Data["eventsub_ready"] != true {
-			generic(w, 502)
+			fail("eventsub", "The Twitch EventSub service is not ready yet. Check authorization and try again.")
 			return
 		}
 		if complete(setupstate.CheckpointEventSub) {
@@ -557,7 +614,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		resp, e := a.helper.Call(r.Context(), helperRequest{Op: "preview_test"})
 		if e != nil || !resp.OK || resp.Data["previews"] != true {
-			generic(w, 502)
+			fail("preview", "The no-paper previews could not be verified. Check the appliance and try again.")
 			return
 		}
 		if complete(setupstate.CheckpointPreview) {
@@ -569,16 +626,16 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 			return
 		}
 		if st.Completed(setupstate.CheckpointPhysicalAttempted) {
-			http.Error(w, "A physical print was already attempted. Check the printer and CUPS before any manual retry.", 409)
+			fail("physical-test", "A physical print was already attempted. Check the printer and CUPS before any manual retry.")
 			return
 		}
 		if r.Form.Get("confirm_physical_print") != "yes" {
-			http.Error(w, "Explicit print confirmation required", 400)
+			fail("physical-test", "Explicit print confirmation is required.")
 			return
 		}
 		probe, e := a.helper.Call(r.Context(), helperRequest{Op: "printer_probe"})
 		if e != nil || !probe.OK || !probe.Printer.Present {
-			generic(w, 502)
+			fail("physical-test", "No verified F11 was detected. Check printer power and USB before attempting the physical test.")
 			return
 		}
 		if !complete(setupstate.CheckpointPhysicalAttempted) {
@@ -586,7 +643,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		printed, e := a.helper.Call(r.Context(), helperRequest{Op: "physical_test"})
 		if e != nil || !printed.OK || printed.Data["job_id"] == "" {
-			generic(w, 502)
+			fail("physical-test", "The physical print result is uncertain. Do not retry automatically; check the printer and CUPS.")
 			return
 		}
 		redirect(w, r)
@@ -635,16 +692,18 @@ type pageData struct {
 	ClientID     string
 	State        setupstate.State
 	Flow         *twitchdevice.PublicFlow
+	ErrorStage   string
+	ErrorText    string
 }
 
-var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · F11 setup</title><style>:root{font-family:system-ui;line-height:1.5}body{margin:0;background:#eef2f7;color:#18212f}main{max-width:42rem;margin:auto;padding:1rem}section{background:white;border-radius:1rem;padding:2rem}input,button{box-sizing:border-box;width:100%;min-height:3rem;margin:.5rem 0;padding:.7rem}button{background:#4b35d1;color:white;border:0;border-radius:.6rem;font-weight:700}.step{border-top:1px solid #ccd3dd;padding:1rem 0}.done{color:#176b3a;font-weight:700}.warning{border:2px solid #b44;padding:.7rem}</style></head><body><main><section>{{if .Login}}<h1>Welcome</h1><form method="post" action="/login"><label>Setup code<input name="setup_code" type="password" maxlength="128" required></label><button>Continue</button></form>{{end}}{{if .Guide}}<h1>Guided F11 setup</h1><p>Each stage advances only after its operation succeeds.</p>
-<div class="step"><h2>1. Welcome</h2>{{if .State.Completed "welcome"}}<span class="done">Done</span>{{else}}<form method="post" action="/action/welcome"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Begin setup</button></form>{{end}}</div>
-<div class="step"><h2>2. Connect Wi-Fi</h2>{{if .State.Completed "network"}}<span class="done">Connected</span>{{else}}<p>If you opened this page over your home network, verify and keep the appliance's current connection. No Wi-Fi password is needed.</p><form method="post" action="/action/network"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="use_current" value="yes"><button>Use current Wi-Fi connection</button></form><details><summary>Connect to different Wi-Fi</summary><p>Enter the new home Wi-Fi details. The temporary setup network may disconnect after this succeeds; reconnect your phone to home Wi-Fi and reopen <strong>http://f11-setup.local:8080/</strong>.</p><form method="post" action="/action/network"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Wi-Fi name<input name="ssid" maxlength="32" required autocomplete="off"></label><label>Wi-Fi password<input name="wifi_password" type="password" minlength="8" maxlength="63" required autocomplete="new-password"></label><button>Connect and verify</button></form></details>{{end}}</div>
-<div class="step"><h2>3. Printer</h2><p>Probe one attached F11 and configure the canonical Rongta_F11_Media queue.</p>{{if .State.Completed "printer"}}<span class="done">Verified</span>{{else}}<form method="post" action="/action/printer"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Probe and configure</button></form>{{end}}</div>
-<div class="step"><h2>4. Twitch</h2>{{if .State.Completed "twitch"}}<span class="done">Authorized</span>{{else}}{{if .Flow}}<p>Open <strong>{{.Flow.VerificationURI}}</strong> on a trusted device and enter code <strong>{{.Flow.UserCode}}</strong>.</p><form method="post" action="/action/twitch/poll"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>I've approved it — check Twitch</button></form>{{else}}<p>Enter the public Client ID from your Twitch application. No client secret is used.</p><form method="post" action="/action/twitch/start"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Client ID<input name="client_id" maxlength="128" required></label><button>Start device authorization</button></form>{{end}}{{end}}</div>
-<div class="step"><h2>5. EventSub readiness</h2><p>Verify the appliance service is active.</p>{{if .State.Completed "eventsub"}}<span class="done">Ready</span>{{else}}<form method="post" action="/action/eventsub"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Check service</button></form>{{end}}</div>
-<div class="step"><h2>6. No-paper previews</h2><p>Review banner, gift, and raid behavior without sending paper.</p>{{if .State.Completed "preview"}}<span class="done">Reviewed</span>{{else}}<form method="post" action="/action/preview"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Preview reviewed</button></form>{{end}}</div>
-<div class="step"><h2>Optional physical test</h2><p class="warning"><strong>Warning:</strong> this opt-in test can use paper. The printer must be attached. This build verifies readiness but does not submit an arbitrary print through the privileged helper.</p><form method="post" action="/action/physical-test"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label><input type="checkbox" name="confirm_physical_print" value="yes" required> I understand paper may be used</label><button>Verify physical-test readiness</button></form></div>
+var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · F11 setup</title><style>:root{font-family:system-ui;line-height:1.5}body{margin:0;background:#eef2f7;color:#18212f}main{max-width:42rem;margin:auto;padding:1rem}section{background:white;border-radius:1rem;padding:2rem}input,button{box-sizing:border-box;width:100%;min-height:3rem;margin:.5rem 0;padding:.7rem}button{background:#4b35d1;color:white;border:0;border-radius:.6rem;font-weight:700}.step{border-top:1px solid #ccd3dd;padding:1rem 0}.done{color:#176b3a;font-weight:700}.warning{border:2px solid #b44;padding:.7rem}.error{background:#fff2f0;border:2px solid #b42318;border-radius:.6rem;color:#7a271a;padding:.8rem;margin:.8rem 0}</style></head><body><main><section>{{if .Login}}<h1>Welcome</h1><form method="post" action="/login"><label>Setup code<input name="setup_code" type="password" maxlength="128" required></label><button>Continue</button></form>{{end}}{{if .Guide}}<h1>Guided F11 setup</h1><p>Each stage advances only after its operation succeeds.</p>
+<div class="step"><h2>1. Welcome</h2>{{if .State.Completed "welcome"}}<span class="done">Ready automatically</span>{{else}}<form method="post" action="/action/welcome"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Begin setup</button></form>{{end}}</div>
+<div class="step"><h2>2. Connect Wi-Fi</h2>{{if eq .ErrorStage "network"}}<div class="error" data-error-stage="network" role="alert">{{.ErrorText}}</div>{{end}}{{if .State.Completed "network"}}<span class="done">Connected automatically</span><details><summary>Change Wi-Fi connection</summary><p>Only use this if you want to move the appliance to a different home Wi-Fi network.</p><form method="post" action="/action/network"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Wi-Fi name<input name="ssid" maxlength="32" required autocomplete="off"></label><label>Wi-Fi password<input name="wifi_password" type="password" minlength="8" maxlength="63" required autocomplete="new-password"></label><button>Connect and verify</button></form></details>{{else}}<p>No verified home Wi-Fi connection was found.</p><form method="post" action="/action/network"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="use_current" value="yes"><button>Check current Wi-Fi again</button></form><details><summary>Connect to different Wi-Fi</summary><form method="post" action="/action/network"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Wi-Fi name<input name="ssid" maxlength="32" required autocomplete="off"></label><label>Wi-Fi password<input name="wifi_password" type="password" minlength="8" maxlength="63" required autocomplete="new-password"></label><button>Connect and verify</button></form></details>{{end}}</div>
+<div class="step"><h2>3. Printer</h2><p>Probe one attached F11 and configure the canonical Rongta_F11_Media queue.</p>{{if eq .ErrorStage "printer"}}<div class="error" data-error-stage="printer" role="alert">{{.ErrorText}}</div>{{end}}{{if .State.Completed "printer"}}<span class="done">Verified</span>{{else}}<form method="post" action="/action/printer"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Probe and configure</button></form>{{end}}</div>
+<div class="step"><h2>4. Twitch</h2>{{if eq .ErrorStage "twitch"}}<div class="error" data-error-stage="twitch" role="alert">{{.ErrorText}}</div>{{end}}{{if .State.Completed "twitch"}}<span class="done">Authorized</span>{{else}}{{if .Flow}}<p>Open <strong>{{.Flow.VerificationURI}}</strong> on a trusted device and enter code <strong>{{.Flow.UserCode}}</strong>.</p><form method="post" action="/action/twitch/poll"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>I've approved it — check Twitch</button></form>{{else}}<p>Enter the public Client ID from your Twitch application. No client secret is used.</p><form method="post" action="/action/twitch/start"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label>Client ID<input name="client_id" maxlength="128" required></label><button>Start device authorization</button></form>{{end}}{{end}}</div>
+<div class="step"><h2>5. EventSub readiness</h2>{{if eq .ErrorStage "eventsub"}}<div class="error" data-error-stage="eventsub" role="alert">{{.ErrorText}}</div>{{end}}<p>Verify the appliance service is active.</p>{{if .State.Completed "eventsub"}}<span class="done">Ready</span>{{else}}<form method="post" action="/action/eventsub"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Check service</button></form>{{end}}</div>
+<div class="step"><h2>6. No-paper previews</h2>{{if eq .ErrorStage "preview"}}<div class="error" data-error-stage="preview" role="alert">{{.ErrorText}}</div>{{end}}<p>Review banner, gift, and raid behavior without sending paper.</p>{{if .State.Completed "preview"}}<span class="done">Reviewed</span>{{else}}<form method="post" action="/action/preview"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Preview reviewed</button></form>{{end}}</div>
+<div class="step"><h2>Optional physical test</h2>{{if eq .ErrorStage "physical-test"}}<div class="error" data-error-stage="physical-test" role="alert">{{.ErrorText}}</div>{{end}}<p class="warning"><strong>Warning:</strong> this opt-in test can use paper. The printer must be attached. This build verifies readiness but does not submit an arbitrary print through the privileged helper.</p><form method="post" action="/action/physical-test"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><label><input type="checkbox" name="confirm_physical_print" value="yes" required> I understand paper may be used</label><button>Verify physical-test readiness</button></form></div>
 <div class="step"><h2>7. Completion</h2>{{if .State.Completed "complete"}}<span class="done">Setup complete</span>{{else}}<form method="post" action="/action/complete"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button>Finish setup</button></form>{{end}}</div>{{end}}</section></main></body></html>`))
 
 func render(w http.ResponseWriter, d pageData) {
