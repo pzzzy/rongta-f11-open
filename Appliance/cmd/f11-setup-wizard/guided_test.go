@@ -108,20 +108,79 @@ func TestExistingStationConnectionCompletesNetworkWithoutCredentials(t *testing.
 	}
 }
 
-func TestGuidedStagesAdvanceOnlyAfterVerifiedSuccess(t *testing.T) {
+func TestAuthenticatedHomeAutomaticallyCompletesWelcomeAndVerifiedNetwork(t *testing.T) {
 	h, state, helper, _, _ := guidedHandler(t)
 	cookie := authenticate(t, h)
-	if r := postAction(t, h, cookie, "/action/network", url.Values{"ssid": {"Home"}, "wifi_password": {"password123"}}); r.Code != http.StatusConflict || state.state.Completed(setupstate.CheckpointNetwork) {
-		t.Fatalf("network bypass status=%d state=%#v", r.Code, state.state)
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	if page.Code != http.StatusOK || !state.state.Completed(setupstate.CheckpointWelcome) || !state.state.Completed(setupstate.CheckpointNetwork) {
+		t.Fatalf("status=%d state=%#v", page.Code, state.state)
 	}
-	if r := postAction(t, h, cookie, "/action/welcome", url.Values{}); r.Code != http.StatusSeeOther {
-		t.Fatal(r.Code)
+	if len(helper.calls) != 1 || helper.calls[0].Op != "wifi_status" {
+		t.Fatalf("calls=%+v", helper.calls)
 	}
-	if r := postAction(t, h, cookie, "/action/network", url.Values{"ssid": {"Home"}, "wifi_password": {"password123"}}); r.Code != http.StatusSeeOther || !state.state.Completed(setupstate.CheckpointNetwork) {
+	body := page.Body.String()
+	if !strings.Contains(body, "Connected automatically") || !strings.Contains(body, "Change Wi-Fi connection") || !strings.Contains(body, "Probe and configure") {
+		t.Fatalf("automatic setup controls missing: %s", body)
+	}
+}
+
+func TestNetworkVerificationFailureReturnsInline(t *testing.T) {
+	h, state, helper, _, _ := guidedHandler(t)
+	helper.responses["wifi_status"] = helperResponse{OK: true, Data: map[string]any{"connected": false, "recovery_ap": false}}
+	cookie := authenticate(t, h)
+	r := postAction(t, h, cookie, "/action/network", url.Values{"use_current": {"yes"}})
+	if r.Code != http.StatusSeeOther || r.Header().Get("Location") != "/" || state.state.Completed(setupstate.CheckpointNetwork) {
+		t.Fatalf("status=%d location=%q state=%#v", r.Code, r.Header().Get("Location"), state.state)
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	if !strings.Contains(page.Body.String(), `data-error-stage="network"`) || !strings.Contains(page.Body.String(), "No active home Wi-Fi connection was verified") {
+		t.Fatalf("network inline error missing: %s", page.Body.String())
+	}
+}
+
+func TestPrinterFailureReturnsToGuideWithInlineActionableError(t *testing.T) {
+	h, state, helper, _, _ := guidedHandler(t)
+	helper.responses["printer_probe"] = helperResponse{OK: false, Error: &helperError{Code: "ambiguous_printer", Message: "redacted"}}
+	cookie := authenticate(t, h)
+	r := postAction(t, h, cookie, "/action/printer", url.Values{})
+	if r.Code != http.StatusSeeOther || r.Header().Get("Location") != "/" || state.state.Completed(setupstate.CheckpointPrinter) {
+		t.Fatalf("status=%d location=%q state=%#v", r.Code, r.Header().Get("Location"), state.state)
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	body := page.Body.String()
+	if !strings.Contains(body, "No verified F11 was detected") || !strings.Contains(body, "powered on") || !strings.Contains(body, "Pi&#39;s USB port") {
+		t.Fatalf("actionable inline error missing: %s", body)
+	}
+	if strings.Contains(body, "redacted") || !strings.Contains(body, `data-error-stage="printer"`) {
+		t.Fatalf("unsafe or misplaced error: %s", body)
+	}
+	page = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	if strings.Contains(page.Body.String(), "No verified F11 was detected") {
+		t.Fatal("inline error was not one-time")
+	}
+}
+
+func TestGuidedStagesAdvanceOnlyAfterVerifiedSuccess(t *testing.T) {
+	h, state, helper, _, _ := guidedHandler(t)
+	helper.responses["wifi_status"] = helperResponse{OK: true, Data: map[string]any{"connected": false, "recovery_ap": false}}
+	cookie := authenticate(t, h)
+	if r := postAction(t, h, cookie, "/action/network", url.Values{"ssid": {"Home"}, "wifi_password": {"password123"}}); r.Code != http.StatusSeeOther || !state.state.Completed(setupstate.CheckpointWelcome) || !state.state.Completed(setupstate.CheckpointNetwork) {
 		t.Fatalf("network status=%d state=%#v", r.Code, state.state)
 	}
 	helper.responses["printer_configure"] = helperResponse{OK: false}
-	if r := postAction(t, h, cookie, "/action/printer", url.Values{}); r.Code != http.StatusBadGateway || state.state.Completed(setupstate.CheckpointPrinter) {
+	if r := postAction(t, h, cookie, "/action/printer", url.Values{}); r.Code != http.StatusSeeOther || state.state.Completed(setupstate.CheckpointPrinter) {
 		t.Fatalf("printer improperly advanced %d", r.Code)
 	}
 }
@@ -171,12 +230,12 @@ func TestPhysicalPrintAmbiguityCannotBeRetried(t *testing.T) {
 	}
 	helper.responses["physical_test"] = helperResponse{OK: false}
 	first := postAction(t, h, cookie, "/action/physical-test", url.Values{"confirm_physical_print": {"yes"}})
-	if first.Code != http.StatusBadGateway || !state.state.Completed(setupstate.CheckpointPhysicalAttempted) {
+	if first.Code != http.StatusSeeOther || !state.state.Completed(setupstate.CheckpointPhysicalAttempted) {
 		t.Fatalf("first=%d state=%#v", first.Code, state.state)
 	}
 	calls := len(helper.calls)
 	second := postAction(t, h, cookie, "/action/physical-test", url.Values{"confirm_physical_print": {"yes"}})
-	if second.Code != http.StatusConflict || len(helper.calls) != calls {
+	if second.Code != http.StatusSeeOther || len(helper.calls) != calls {
 		t.Fatalf("second=%d calls=%v", second.Code, helper.calls)
 	}
 }
