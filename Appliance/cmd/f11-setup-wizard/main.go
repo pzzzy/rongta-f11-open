@@ -609,7 +609,7 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		return
 	case "preview":
-		if !need(setupstate.CheckpointEventSub) {
+		if !need(setupstate.CheckpointPrinter) {
 			return
 		}
 		resp, e := a.helper.Call(r.Context(), helperRequest{Op: "preview_test"})
