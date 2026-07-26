@@ -80,7 +80,7 @@ for p in root.rglob('*'):
     if p.name in forbidden_names or p.suffix in {'.key','.p12','.pfx'}: problems.append(rel+': forbidden secret-bearing filename')
     data=p.read_bytes()
     if canary and canary.encode() in data: problems.append(rel+': secret canary leaked')
-    if b'-----BEGIN OPENSSH PRIVATE KEY-----' in data or b'-----BEGIN PRIVATE KEY-----' in data: problems.append(rel+': private key')
+    if b'-----BEGIN '+b'OPENSSH PRIVATE KEY-----' in data or b'-----BEGIN '+b'PRIVATE KEY-----' in data: problems.append(rel+': private key')
     try: text=data.decode()
     except UnicodeDecodeError: continue
     for n,line in enumerate(text.splitlines(),1):
