@@ -17,7 +17,7 @@ On a privileged Linux builder with loop devices, qemu-user-static, and bmap-tool
 sudo ./image/build-image.sh
 ```
 
-Release files appear in `dist/`: `.img.xz`, `.bmap`, `.img.xz.sha256`, and a manifest. Never publish `.image-cache`, `settings.toml`, OAuth files, or a configured image.
+Release files appear in `dist/`: `.img.xz`, `.bmap`, `.img.xz.sha256`, manifest, package inventory, source archive, `flash-card.py`, `personalize-card.py`, `settings.example.toml`, `README.md`, `LICENSE`, and checksums. Never publish `.image-cache`, populated `f11-settings.toml`, OAuth files, tokens, event journals, or a configured image.
 
 ## Flash
 
@@ -64,11 +64,11 @@ The wizard verifies, in order:
 
 1. network connectivity;
 2. exactly one attached F11 and canonical `Rongta_F11_Media` queue;
-3. Twitch device authorization and immutable account identity;
-4. EventSub/service readiness;
-5. no-paper previews;
-6. one optional, clearly labeled fixed physical banner test;
-7. final health and setup completion.
+3. no-paper renderer validation (available before Twitch; generated files remain private and no paper is used);
+4. Twitch device authorization and immutable account identity;
+5. EventSub/service readiness;
+6. final setup completion, which requires Twitch, EventSub, and renderer validation;
+7. one optional physical-test readiness action. A physical print is never required for setup completion and an uncertain physical attempt must not be retried.
 
 The public image does not embed a Twitch client secret. A project public Client ID may be injected for releases; otherwise the wizard explains how to register a public Twitch application and enter its Client ID.
 
@@ -95,6 +95,6 @@ lpstat -v -p Rongta_F11_Media
 /usr/local/lib/f11/f11-health
 ```
 
-Then complete the wizard, run the banner/raid/gift no-paper previews, approve the single short banner physical proof, wait for CUPS to drain, and export the support bundle. Do not post setup codes, Wi-Fi values, OAuth data, printer serials, IP/MAC addresses, or event journals publicly.
+Then complete renderer validation without paper, configure Twitch and verify EventSub, finish setup, and export the support bundle. A physical print is optional and must never be retried after an uncertain result. Do not post setup codes, Wi-Fi values, OAuth data, printer serials, IP/MAC addresses, or event journals publicly.
 
 The first physical Zero W run is a qualification test. Preserve logs and report every wizard ambiguity or recovery failure so the image can be tightened before a stable release.
