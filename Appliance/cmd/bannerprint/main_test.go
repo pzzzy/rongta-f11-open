@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,6 +79,95 @@ func TestPreviewBuildsAndValidatesWithoutCallingExternalCommands(t *testing.T) {
 	}
 	if !got.OK || !got.Preview || got.Submitted || got.Rows <= 0 || got.Rows >= legacyBannerRows || got.WidthDots != 1664 || len(got.Lines) != 3 || got.Font != "bold" || got.Bytes <= 0 || got.SHA256 == "" {
 		t.Fatalf("report=%#v", got)
+	}
+}
+
+func TestPreviewPNGIsCreatedAndNotParsedAsBannerText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "banner.png")
+	var out bytes.Buffer
+	called := false
+	runner := func(string, ...string) ([]byte, error) { called = true; return nil, nil }
+	submitter := func(string, []byte, ...string) ([]byte, error) { called = true; return nil, nil }
+	if err := run([]string{"--preview", "--preview-png", path, "*"}, "", &out, runner, submitter); err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("preview invoked external command")
+	}
+	var got report
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Lines, []string{"*"}) {
+		t.Fatalf("preview path leaked into banner text: %#v", got.Lines)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds().Dx() != bannerWidth || img.Bounds().Dy() != got.Rows || got.Rows <= 0 {
+		t.Fatalf("png=%v report=%#v", img.Bounds(), got)
+	}
+}
+
+func TestPreviewPNGRequiresPreviewMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "banner.png")
+	if _, err := parseArgs([]string{"--preview-png", path, "HELLO"}, ""); err == nil {
+		t.Fatal("preview PNG accepted without preview mode")
+	}
+}
+
+func TestPreviewPNGFailureLeavesNoFinalOrTemporaryArtifact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "banner.png")
+	oldEncode := encodePreviewPNG
+	encodePreviewPNG = func(io.Writer, image.Image) error { return errors.New("encode failed") }
+	t.Cleanup(func() { encodePreviewPNG = oldEncode })
+	var out bytes.Buffer
+	err := run([]string{"--preview", "--preview-png", path, "*"}, "", &out,
+		func(string, ...string) ([]byte, error) { t.Fatal("runner called"); return nil, nil },
+		func(string, []byte, ...string) ([]byte, error) { t.Fatal("submitter called"); return nil, nil })
+	if err == nil || !strings.Contains(err.Error(), "encode failed") {
+		t.Fatalf("err=%v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed preview left artifacts: %v", entries)
+	}
+}
+
+func TestPreviewPNGDoesNotOverwriteExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "banner.png")
+	original := []byte("existing")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"--preview", "--preview-png", path, "*"}, "", &out,
+		func(string, ...string) ([]byte, error) { t.Fatal("runner called"); return nil, nil },
+		func(string, []byte, ...string) ([]byte, error) { t.Fatal("submitter called"); return nil, nil })
+	if err == nil {
+		t.Fatal("existing preview destination was accepted")
+	}
+	got, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(got, original) {
+		t.Fatalf("existing destination changed: got=%q err=%v", got, readErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != "banner.png" {
+		t.Fatalf("temporary artifacts remain: %v", entries)
 	}
 }
 
