@@ -15,8 +15,16 @@ assert 'qemu-arm-static' in custom and 'systemd-analyze' in custom
 assert 'git -C "$ROOT/.." archive' in build and 'git -C "$ROOT/../.."' not in build
 assert 'F11_SOURCE_ARCHIVE' in build
 assert 'install -m0755 "$ROOT/image/flash-card.py" "$DIST/flash-card.py"' in build
-assert '"$product-$version-source.tar.gz" flash-card.py >SHA256SUMS' in build
+assert 'install -m0755 "$ROOT/image/personalize-card.py" "$DIST/personalize-card.py"' in build
+assert 'install -m0644 "$ROOT/image/settings.example.toml" "$DIST/settings.example.toml"' in build
+for release_asset in ('README.md', 'LICENSE', 'personalize-card.py', 'settings.example.toml', 'base-image.lock', 'img.xz.sha256'):
+    assert release_asset in build, release_asset
+release_readme=(r/'image/README.md').read_text()
+assert './personalize-card.py' in release_readme
+assert './image/personalize-card.py' not in release_readme
 flasher=(r/'image/flash-card.py').read_text()
+assert 'image/personalize-card.py' not in flasher
+assert 'personalize-card.py' in flasher
 assert '--root-write' in flasher and '--root-read' in flasher
 assert 'require_external_physical(expected.identifier)' in flasher
 assert 'os.open(expected.raw_path, os.O_RDWR)' in flasher

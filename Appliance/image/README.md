@@ -49,10 +49,10 @@ Raspberry Pi Imager's custom-image option remains a supported graphical alternat
 Preferred: mount the flashed boot partition and create a unique setup card plus optional one-time Wi-Fi/SSH envelope:
 
 ```bash
-./image/personalize-card.py /Volumes/bootfs --wifi-ssid 'Home' --wifi-password 'replace-me'
+./personalize-card.py /Volumes/bootfs --wifi-ssid 'Home' --wifi-password 'replace-me'
 ```
 
-Run `./image/personalize-card.py --help` for hostname, regional, and SSH-key options. The printed setup card does not include the home Wi-Fi password. The machine-readable envelope is imported once and deleted.
+Run `./personalize-card.py --help` for hostname, regional, and SSH-key options. The printed setup card does not include the home Wi-Fi password. The machine-readable envelope is imported once and deleted.
 
 Alternatively, copy `settings.example.toml` to the boot partition as `f11-settings.toml` after flashing. It is imported once and deleted. Do not commit or distribute a populated settings file.
 
