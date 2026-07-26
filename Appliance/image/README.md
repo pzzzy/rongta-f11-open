@@ -2,9 +2,17 @@
 
 This factory produces a Raspberry Pi OS Lite 32-bit image for an original Raspberry Pi Zero W and Rongta F11 printer. It contains the open F11 CUPS driver, Twitch cheer/gift/raid service, guided setup wizard, recovery AP, and privacy-scrubbed diagnostics.
 
-## Build
+## Build from source
 
-The base image is pinned in `base-image.lock` by URL and SHA-256. On Apple Silicon macOS:
+The release bundle contains a source archive. To rebuild, extract it and enter the source tree's `Appliance` directory:
+
+```bash
+mkdir f11-twitch-zero-0.1.0-rc2-source
+tar -xzf f11-twitch-zero-0.1.0-rc2-source.tar.gz -C f11-twitch-zero-0.1.0-rc2-source
+cd f11-twitch-zero-0.1.0-rc2-source/Appliance
+```
+
+The base image is pinned in `image/base-image.lock` by URL and SHA-256. On Apple Silicon macOS:
 
 ```bash
 brew install lima
@@ -17,14 +25,13 @@ On a privileged Linux builder with loop devices, qemu-user-static, and bmap-tool
 sudo ./image/build-image.sh
 ```
 
-Release files appear in `dist/`: `.img.xz`, `.bmap`, `.img.xz.sha256`, manifest, package inventory, source archive, `flash-card.py`, `personalize-card.py`, `settings.example.toml`, `README.md`, `LICENSE`, and checksums. Never publish `.image-cache`, populated `f11-settings.toml`, OAuth files, tokens, event journals, or a configured image.
+The rebuild writes release files to `dist/`: `.img.xz`, `.bmap`, `.img.xz.sha256`, manifest, package inventory, source archive, `flash-card.py`, `personalize-card.py`, `settings.example.toml`, `README.md`, `LICENSE`, and checksums. Never publish `.image-cache`, populated `f11-settings.toml`, OAuth files, tokens, event journals, or a configured image.
 
 ## Flash
 
-On macOS, use the included safety-focused flasher from the release directory:
+On macOS, from the directory containing this README, use the included safety-focused flasher:
 
 ```bash
-cd dist
 ./flash-card.py
 ```
 

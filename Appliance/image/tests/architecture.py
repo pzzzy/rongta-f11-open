@@ -23,6 +23,8 @@ release_readme=(r/'image/README.md').read_text()
 assert './personalize-card.py' in release_readme
 assert './image/personalize-card.py' not in release_readme
 assert 'no-paper renderer validation' in release_readme
+assert 'cd dist' not in release_readme
+assert "source tree's `Appliance` directory" in release_readme
 assert 'requires Twitch, EventSub, and renderer validation' in release_readme
 assert 'must never be retried' in release_readme
 flasher=(r/'image/flash-card.py').read_text()
