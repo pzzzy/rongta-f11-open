@@ -649,8 +649,10 @@ func (a *wizard) action(w http.ResponseWriter, r *http.Request, name string) {
 		redirect(w, r)
 		return
 	case "complete":
-		if !need(setupstate.CheckpointPreview) {
-			return
+		for _, checkpoint := range []setupstate.Checkpoint{setupstate.CheckpointTwitch, setupstate.CheckpointEventSub, setupstate.CheckpointPreview} {
+			if !need(checkpoint) {
+				return
+			}
 		}
 		if complete(setupstate.CheckpointComplete) {
 			redirect(w, r)
