@@ -44,6 +44,8 @@ cp "$overlay/meta/manifest.json" "$DIST/$product-$version.manifest.json"
 cp "$LOCK" "$DIST/$product-$version.base-image.lock"
 cp "$ROOT/image/README.md" "$DIST/README.md"
 install -m0755 "$ROOT/image/flash-card.py" "$DIST/flash-card.py"
+install -m0755 "$ROOT/image/personalize-card.py" "$DIST/personalize-card.py"
+install -m0644 "$ROOT/image/settings.example.toml" "$DIST/settings.example.toml"
 cp "$ROOT/../LICENSE" "$DIST/LICENSE"
 cp "$out_img.packages.tsv" "$DIST/$product-$version.packages.tsv"
 if [[ -n ${F11_SOURCE_ARCHIVE:-} ]]; then
@@ -55,7 +57,7 @@ else
   git -C "$ROOT/.." archive --format=tar.gz -o "$DIST/$product-$version-source.tar.gz" HEAD
 fi
 tar -tzf "$DIST/$product-$version-source.tar.gz" | grep -Fqx 'LICENSE' && tar -tzf "$DIST/$product-$version-source.tar.gz" | grep -Fqx 'Appliance/go.mod' && ! tar -tzf "$DIST/$product-$version-source.tar.gz" | grep -E '(__pycache__|\.pyc$|settings\.toml$|token\.json$|events\.jsonl$|f11-personalize\.json$)'
-(cd "$DIST" && sha256 "$product-$version.img.xz" "$product-$version.bmap" "$product-$version.manifest.json" "$product-$version.packages.tsv" "$product-$version-source.tar.gz" flash-card.py >SHA256SUMS)
+(cd "$DIST" && sha256 "$product-$version.img.xz" "$product-$version.img.xz.sha256" "$product-$version.bmap" "$product-$version.manifest.json" "$product-$version.base-image.lock" "$product-$version.packages.tsv" "$product-$version-source.tar.gz" README.md LICENSE flash-card.py personalize-card.py settings.example.toml >SHA256SUMS)
 printf 'image=%s\n' "$DIST/$product-$version.img.xz"
 printf 'sha256=%s\n' "$(cut -d' ' -f1 "$DIST/$product-$version.img.xz.sha256")"
 rm -f "$out_img" "$out_img.packages.tsv"

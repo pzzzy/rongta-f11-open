@@ -563,7 +563,7 @@ def main(argv=None):
         raise
     eject_same_disk(current, strict=True)
     print("\nFlash complete and SD card ejected safely.")
-    print("Remove and reinsert it if you want to run image/personalize-card.py before first boot.")
+    print("Remove and reinsert it if you want to run personalize-card.py before first boot.")
     return 0
 
 
