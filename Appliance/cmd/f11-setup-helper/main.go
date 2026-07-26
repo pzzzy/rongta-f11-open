@@ -224,7 +224,7 @@ func (s *server) handle(parent context.Context, r request) response {
 			JobID         string `json:"job_id"`
 		}
 		if json.Unmarshal(o, &report) != nil || !report.OK || !report.Submitted || !regexp.MustCompile(`^Rongta_F11_Media-[0-9]+$`).MatchString(report.JobID) {
-			return fail("print_failed", "The controlled print was not accepted.", "Check CUPS and printer health, then retry once.")
+			return fail("print_failed", "The controlled print result is uncertain.", "Inspect CUPS and printer health; do not submit another physical test or retry automatically.")
 		}
 		return ok(map[string]any{"job_id": report.JobID})
 	case "twitch_install":
