@@ -27,6 +27,7 @@ const (
 var physicalAttemptPath = "/var/lib/f11-setup/physical-test-attempted"
 var wifiStatusEvidencePath = "/var/lib/f11-setup/wifi-status-evidence.json"
 var printerProbeEvidencePath = "/var/lib/f11-setup/printer-probe-evidence.json"
+var removePreviewFile = os.Remove
 
 func writeWiFiStatusEvidence(commandOK, stateConnected, recoveryAP bool, fields int) {
 	b, err := json.Marshal(map[string]any{
@@ -193,10 +194,15 @@ func (s *server) handle(parent context.Context, r request) response {
 		}
 		return ok(map[string]any{"service": "twitch-banner", "status": strings.TrimSpace(string(o)), "eventsub_ready": r.Op == "service_status"})
 	case "preview_test":
+		for _, path := range []string{"/tmp/f11-setup-banner.png", "/tmp/f11-setup-raid.png", "/tmp/f11-setup-gift.png"} {
+			if e := removePreviewFile(path); e != nil && !errors.Is(e, os.ErrNotExist) {
+				return fail("preview_failed", "A no-paper preview failed.", "Check installed renderer health and retry.")
+			}
+		}
 		commands := [][]string{
-			{"/usr/bin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "--preview", "/tmp/f11-setup-banner.png", "*"},
-			{"/usr/bin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/raidprint", "--preview", "/tmp/f11-setup-raid.png", "SetupRaid", "47"},
-			{"/usr/bin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/giftprint", "--preview", "/tmp/f11-setup-gift.png", "SetupGifter", "10", "Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Heidi", "Ivan", "Judy"},
+			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "--preview", "/tmp/f11-setup-banner.png", "*"},
+			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/raidprint", "--preview", "--preview-png", "/tmp/f11-setup-raid.png", "--channel", "SetupRaid", "--viewers", "47"},
+			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/giftprint", "--preview", "--preview-png", "/tmp/f11-setup-gift.png", "--gifter", "SetupGifter", "--total", "10", "--recipients", "Alice,Bob,Carol,Dave,Eve,Frank,Grace,Heidi,Ivan,Judy"},
 		}
 		for _, command := range commands {
 			o, e := s.run(ctx, command, nil)
@@ -209,7 +215,7 @@ func (s *server) handle(parent context.Context, r request) response {
 		if e := reservePhysicalAttempt(physicalAttemptPath); e != nil {
 			return fail("physical_test_already_attempted", "A physical test was already attempted.", "Inspect the printer and CUPS; do not automatically retry an uncertain submission.")
 		}
-		o, e := s.run(ctx, []string{"/usr/bin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "*"}, nil)
+		o, e := s.run(ctx, []string{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "*"}, nil)
 		if e != nil {
 			return s.err(e, fail)
 		}
@@ -295,11 +301,16 @@ func validPreviewReport(data []byte) bool {
 		OK        bool `json:"ok"`
 		WidthDots int  `json:"width_dots"`
 		Rows      int  `json:"rows"`
+		Bytes     int  `json:"bytes"`
 	}
-	if json.Unmarshal(data, &report) != nil || !report.OK || report.Rows < 1 || report.Rows > 4060 {
+	if json.Unmarshal(data, &report) != nil || !report.OK {
 		return false
 	}
-	return report.WidthDots == 0 || report.WidthDots == 1664
+	if report.Rows >= 1 && report.Rows <= 4060 {
+		return report.WidthDots == 0 || report.WidthDots == 1664
+	}
+	// bannerprint reports a validated stream by byte count rather than rows.
+	return report.Bytes >= 1 && report.Bytes <= 10<<20
 }
 
 func validateTwitchInstall(r request) error {

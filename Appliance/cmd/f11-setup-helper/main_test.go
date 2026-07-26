@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -143,19 +144,47 @@ func TestRecoveryAndServiceOperationsUseFixedTargets(t *testing.T) {
 	}
 }
 
+func TestBannerPreviewReportUsesByteCountWhenRowsAreAbsent(t *testing.T) {
+	if !validPreviewReport([]byte(`{"ok":true,"bytes":169792}`)) {
+		t.Fatal("banner preview report rejected")
+	}
+	if validPreviewReport([]byte(`{"ok":true,"bytes":0}`)) {
+		t.Fatal("empty banner preview report accepted")
+	}
+}
+
 func TestPreviewAndPhysicalTestsUseFixedCommands(t *testing.T) {
 	oldAttemptPath := physicalAttemptPath
+	oldRemovePreviewFile := removePreviewFile
 	physicalAttemptPath = filepath.Join(t.TempDir(), "physical-test-attempted")
-	t.Cleanup(func() { physicalAttemptPath = oldAttemptPath })
+	var removed []string
+	removePreviewFile = func(path string) error {
+		removed = append(removed, path)
+		return os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		physicalAttemptPath = oldAttemptPath
+		removePreviewFile = oldRemovePreviewFile
+	})
 	f := &fakeRunner{output: map[string][]byte{
-		"/usr/bin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00--preview\x00/tmp/f11-setup-banner.png\x00*":                                                                                                []byte(`{"ok":true,"rows":735}`),
-		"/usr/bin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/raidprint\x00--preview\x00/tmp/f11-setup-raid.png\x00SetupRaid\x0047":                                                                                      []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
-		"/usr/bin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/giftprint\x00--preview\x00/tmp/f11-setup-gift.png\x00SetupGifter\x0010\x00Alice\x00Bob\x00Carol\x00Dave\x00Eve\x00Frank\x00Grace\x00Heidi\x00Ivan\x00Judy": []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
-		"/usr/bin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00*":                                                                                                                                          []byte(`{"ok":true,"submitted":true,"job_id":"Rongta_F11_Media-9"}`),
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00--preview\x00/tmp/f11-setup-banner.png\x00*":                                                                                                                             []byte(`{"ok":true,"rows":735}`),
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/raidprint\x00--preview\x00--preview-png\x00/tmp/f11-setup-raid.png\x00--channel\x00SetupRaid\x00--viewers\x0047":                                                                        []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/giftprint\x00--preview\x00--preview-png\x00/tmp/f11-setup-gift.png\x00--gifter\x00SetupGifter\x00--total\x0010\x00--recipients\x00Alice,Bob,Carol,Dave,Eve,Frank,Grace,Heidi,Ivan,Judy": []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00*":                                                                                                                                                                       []byte(`{"ok":true,"submitted":true,"job_id":"Rongta_F11_Media-9"}`),
 	}}
 	s := &server{runner: f}
 	if r := s.handle(context.Background(), request{Op: "preview_test"}); !r.OK {
 		t.Fatalf("preview=%+v calls=%v", r, f.calls)
+	}
+	if r := s.handle(context.Background(), request{Op: "preview_test"}); !r.OK {
+		t.Fatalf("repeat preview=%+v calls=%v", r, f.calls)
+	}
+	wantRemoved := []string{
+		"/tmp/f11-setup-banner.png", "/tmp/f11-setup-raid.png", "/tmp/f11-setup-gift.png",
+		"/tmp/f11-setup-banner.png", "/tmp/f11-setup-raid.png", "/tmp/f11-setup-gift.png",
+	}
+	if !reflect.DeepEqual(removed, wantRemoved) {
+		t.Fatalf("removed=%v want=%v", removed, wantRemoved)
 	}
 	if r := s.handle(context.Background(), request{Op: "physical_test"}); !r.OK || r.Data["job_id"] != "Rongta_F11_Media-9" {
 		t.Fatalf("physical=%+v", r)

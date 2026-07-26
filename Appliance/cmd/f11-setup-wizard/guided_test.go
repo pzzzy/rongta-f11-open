@@ -220,6 +220,20 @@ func TestTwitchDeviceCodeAndSecretsNeverRender(t *testing.T) {
 	}
 }
 
+func TestNoPaperPreviewDoesNotRequireTwitch(t *testing.T) {
+	h, state, _, _, _ := guidedHandler(t)
+	cookie := authenticate(t, h)
+	for _, checkpoint := range []setupstate.Checkpoint{setupstate.CheckpointWelcome, setupstate.CheckpointNetwork, setupstate.CheckpointPrinter} {
+		if err := state.state.Complete(checkpoint, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := postAction(t, h, cookie, "/action/preview", url.Values{})
+	if r.Code != http.StatusSeeOther || !state.state.Completed(setupstate.CheckpointPreview) {
+		t.Fatalf("preview=%d state=%#v", r.Code, state.state)
+	}
+}
+
 func TestPhysicalPrintAmbiguityCannotBeRetried(t *testing.T) {
 	h, state, helper, _, _ := guidedHandler(t)
 	cookie := authenticate(t, h)
