@@ -84,6 +84,16 @@ func TestComicSansStyleIsExplicitAndNonDefault(t *testing.T) {
 	}
 }
 
+func TestAutoSelectedTwoLineRenderFillsPrintableVerticalSpan(t *testing.T) {
+	l, err := PlanLines("PLEASE LEAVE HERE", 3045, 1664, 45, 0, FontGoBold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Lines) != 2 || !l.FillHeight {
+		t.Fatalf("auto layout=%#v", l)
+	}
+}
+
 func TestForcedTwoLineRenderFillsPrintableVerticalSpan(t *testing.T) {
 	l, err := PlanLines("PLEASE DON'T LEAVE YOUR TRAILER HERE", 3045, 1664, 45, 2, FontGoBold)
 	if err != nil {

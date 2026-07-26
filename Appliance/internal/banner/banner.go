@@ -194,7 +194,7 @@ func PlanLines(text string, w, h, margin, lineCount int, style FontStyle) (Layou
 			balance := float64(minW) / float64(maxW)
 			if size > bestSizeSeen+0.001 || (math.Abs(size-bestSizeSeen) <= 0.001 && balance > bestBalance) {
 				bestSizeSeen, bestBalance = size, balance
-				best = Layout{Lines: lines, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: size, Font: style, FillHeight: lineCount == 2}
+				best = Layout{Lines: lines, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: size, Font: style, FillHeight: len(lines) == 2}
 			}
 		}
 	}
