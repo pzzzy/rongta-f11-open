@@ -53,7 +53,8 @@ install -m0644 systemd/f11-print-led.service "$OUT/rootfs/usr/share/f11-image/f1
 for u in f11-setup-wizard.service f11-setup-helper.service; do [[ -f systemd/$u ]] && install -m0644 "systemd/$u" "$OUT/rootfs/usr/share/f11-image/$u"; done
 cp "$LOCK" "$OUT/meta/base-image.lock"
 git -C "$ROOT/.." rev-parse HEAD >"$OUT/meta/source-commit"
-printf '0.1.0-rc1+%s\n' "$(cat "$OUT/meta/source-commit" | cut -c1-12)" >"$OUT/rootfs/usr/share/f11-image/version"
+IMAGE_VERSION=$(sed -n 's/^IMAGE_VERSION=//p' "$LOCK")
+printf '%s+%s\n' "$IMAGE_VERSION" "$(cat "$OUT/meta/source-commit" | cut -c1-12)" >"$OUT/rootfs/usr/share/f11-image/version"
 printf 'Rongta F11 Twitch Printer Appliance\n' >"$OUT/rootfs/etc/f11-image-release"
 ln -s ../f11-first-boot.service "$OUT/rootfs/etc/systemd/system/multi-user.target.wants/f11-first-boot.service"
 python3 - "$OUT" <<'PY'
