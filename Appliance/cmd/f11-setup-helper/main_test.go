@@ -167,7 +167,7 @@ func TestPreviewAndPhysicalTestsUseFixedCommands(t *testing.T) {
 		removePreviewFile = oldRemovePreviewFile
 	})
 	f := &fakeRunner{output: map[string][]byte{
-		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00--preview\x00/tmp/f11-setup-banner.png\x00*":                                                                                                                             []byte(`{"ok":true,"rows":735}`),
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00--preview\x00--preview-png\x00/tmp/f11-setup-banner.png\x00*":                                                                                                            []byte(`{"ok":true,"rows":735}`),
 		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/raidprint\x00--preview\x00--preview-png\x00/tmp/f11-setup-raid.png\x00--channel\x00SetupRaid\x00--viewers\x0047":                                                                        []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
 		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/giftprint\x00--preview\x00--preview-png\x00/tmp/f11-setup-gift.png\x00--gifter\x00SetupGifter\x00--total\x0010\x00--recipients\x00Alice,Bob,Carol,Dave,Eve,Frank,Grace,Heidi,Ivan,Judy": []byte(`{"ok":true,"width_dots":1664,"rows":2233}`),
 		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00*":                                                                                                                                                                       []byte(`{"ok":true,"submitted":true,"job_id":"Rongta_F11_Media-9"}`),

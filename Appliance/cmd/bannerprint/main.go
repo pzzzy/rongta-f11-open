@@ -8,9 +8,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -32,11 +35,12 @@ const (
 )
 
 type config struct {
-	Queue     string
-	LineCount int
-	Font      banner.FontStyle
-	Preview   bool
-	Text      string
+	Queue      string
+	PreviewPNG string
+	LineCount  int
+	Font       banner.FontStyle
+	Preview    bool
+	Text       string
 }
 
 type report struct {
@@ -61,6 +65,7 @@ type streamSubmitter func(name string, stream []byte, args ...string) ([]byte, e
 
 var queuePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,126}$`)
 var jobPattern = regexp.MustCompile(`request id is ([A-Za-z0-9_.-]+-[0-9]+)\b`)
+var encodePreviewPNG = png.Encode
 
 func parseArgs(args []string, envQueue string) (config, error) {
 	queue := envQueue
@@ -69,6 +74,7 @@ func parseArgs(args []string, envQueue string) (config, error) {
 	lines := fs.String("lines", "auto", "auto, 1, 2, or 3")
 	fontName := fs.String("font", "bold", "bold or comic-sans")
 	preview := fs.Bool("preview", false, "render and validate without printing")
+	previewPNG := fs.String("preview-png", "", "write final cropped PNG preview")
 	fs.StringVar(&queue, "queue", queue, "CUPS queue")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -92,6 +98,9 @@ func parseArgs(args []string, envQueue string) (config, error) {
 	if style != banner.FontGoBold && style != banner.FontComicSans {
 		return config{}, errors.New("font must be bold or comic-sans")
 	}
+	if !*preview && *previewPNG != "" {
+		return config{}, errors.New("preview-png requires preview")
+	}
 	rawText := strings.Join(fs.Args(), " ")
 	if !utf8.ValidString(rawText) {
 		return config{}, errors.New("text must be valid UTF-8")
@@ -108,7 +117,7 @@ func parseArgs(args []string, envQueue string) (config, error) {
 	if !banner.SupportsText(style, text) {
 		return config{}, errors.New("selected font does not support every character")
 	}
-	return config{Queue: queue, LineCount: lineCount, Font: style, Preview: *preview, Text: text}, nil
+	return config{Queue: queue, PreviewPNG: *previewPNG, LineCount: lineCount, Font: style, Preview: *preview, Text: text}, nil
 }
 
 func resolveQueue(queue string, runner commandRunner) (string, error) {
@@ -219,7 +228,52 @@ func build(cfg config) ([]byte, banner.Layout, int, error) {
 			return nil, banner.Layout{}, 0, fmt.Errorf("decoded raster mismatch at row %d", i+1)
 		}
 	}
+	if cfg.PreviewPNG != "" {
+		img := image.NewGray(image.Rect(0, 0, bannerWidth, rows))
+		copy(img.Pix, gray)
+		if err := writePreviewPNG(cfg.PreviewPNG, img); err != nil {
+			return nil, banner.Layout{}, 0, err
+		}
+	}
 	return stream, layout, rows, nil
+}
+
+func writePreviewPNG(path string, img image.Image) (err error) {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".banner-preview-*.png")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	published := false
+	defer func() {
+		_ = tmp.Close()
+		if !published {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if err := encodePreviewPNG(tmp, img); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Link(tmpPath, path); err != nil {
+		return err
+	}
+	published = true
+	if err := os.Remove(tmpPath); err != nil {
+		_ = os.Remove(path)
+		published = false
+		return err
+	}
+	return nil
 }
 
 func fontDisplayName(style banner.FontStyle) string {
@@ -299,7 +353,7 @@ func realSubmitter(name string, stream []byte, args ...string) ([]byte, error) {
 func main() {
 	if err := run(os.Args[1:], os.Getenv("F11_QUEUE"), os.Stdout, realRunner, realSubmitter); err != nil {
 		fmt.Fprintln(os.Stderr, "bannerprint:", err)
-		fmt.Fprintln(os.Stderr, "usage: bannerprint [--lines auto|1|2|3] [--font bold|comic-sans] [--preview] [--queue NAME] TEXT...")
+		fmt.Fprintln(os.Stderr, "usage: bannerprint [--lines auto|1|2|3] [--font bold|comic-sans] [--preview [--preview-png PATH]] [--queue NAME] TEXT...")
 		os.Exit(2)
 	}
 }

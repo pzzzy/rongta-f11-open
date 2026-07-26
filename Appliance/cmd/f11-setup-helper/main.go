@@ -200,7 +200,7 @@ func (s *server) handle(parent context.Context, r request) response {
 			}
 		}
 		commands := [][]string{
-			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "--preview", "/tmp/f11-setup-banner.png", "*"},
+			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/bannerprint", "--preview", "--preview-png", "/tmp/f11-setup-banner.png", "*"},
 			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/raidprint", "--preview", "--preview-png", "/tmp/f11-setup-raid.png", "--channel", "SetupRaid", "--viewers", "47"},
 			{"/usr/sbin/runuser", "-u", "twitch-banner", "--", "/usr/local/bin/giftprint", "--preview", "--preview-png", "/tmp/f11-setup-gift.png", "--gifter", "SetupGifter", "--total", "10", "--recipients", "Alice,Bob,Carol,Dave,Eve,Frank,Grace,Heidi,Ivan,Judy"},
 		}
