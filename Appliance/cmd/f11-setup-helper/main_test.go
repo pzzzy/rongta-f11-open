@@ -195,6 +195,23 @@ func TestPreviewAndPhysicalTestsUseFixedCommands(t *testing.T) {
 	}
 }
 
+func TestInvalidPhysicalSubmissionReportNeverSuggestsRetry(t *testing.T) {
+	oldAttemptPath := physicalAttemptPath
+	physicalAttemptPath = filepath.Join(t.TempDir(), "physical-test-attempted")
+	t.Cleanup(func() { physicalAttemptPath = oldAttemptPath })
+	f := &fakeRunner{output: map[string][]byte{
+		"/usr/sbin/runuser\x00-u\x00twitch-banner\x00--\x00/usr/local/bin/bannerprint\x00*": []byte(`{"ok":true,"submitted":true}`),
+	}}
+	resp := (&server{runner: f}).handle(context.Background(), request{Op: "physical_test"})
+	if resp.OK || resp.Error == nil || resp.Error.Code != "print_failed" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	text := strings.ToLower(resp.Error.Message + " " + resp.Error.Remediation)
+	if strings.Contains(text, "retry once") || strings.Contains(text, "then retry") || !strings.Contains(text, "do not submit another") || !strings.Contains(text, "do not") || !strings.Contains(text, "cups") {
+		t.Fatalf("unsafe remediation=%q", text)
+	}
+}
+
 func TestTwitchInstallUsesFixedHelperAndDoesNotEchoTokens(t *testing.T) {
 	f := &fakeRunner{}
 	r := request{Op: "twitch_install", ClientID: "publicclient123", Login: "channel", UserID: "12345", AccessToken: "access-secret", RefreshToken: "refresh-secret", ExpiresAt: "2027-01-01T00:00:00Z", Scopes: []string{"bits:read", "user:read:chat"}}
