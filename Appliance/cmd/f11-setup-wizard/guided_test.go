@@ -127,6 +127,38 @@ func TestAuthenticatedHomeAutomaticallyCompletesWelcomeAndVerifiedNetwork(t *tes
 	}
 }
 
+func TestPreviewStageTruthfullyDescribesRendererValidation(t *testing.T) {
+	h, state, _, _, _ := guidedHandler(t)
+	cookie := authenticate(t, h)
+	for _, checkpoint := range []setupstate.Checkpoint{setupstate.CheckpointWelcome, setupstate.CheckpointNetwork, setupstate.CheckpointPrinter} {
+		if err := state.state.Complete(checkpoint, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	body := page.Body.String()
+	if !strings.Contains(body, "No-paper renderer validation") || !strings.Contains(body, "Validate renderers without paper") || !strings.Contains(body, "Generated files stay private") {
+		t.Fatalf("preview stage is not truthful: %s", body)
+	}
+	if strings.Contains(body, "Preview reviewed") || strings.Contains(body, ">Reviewed<") {
+		t.Fatalf("preview stage still claims user review: %s", body)
+	}
+	if r := postAction(t, h, cookie, "/action/preview", url.Values{}); r.Code != http.StatusSeeOther {
+		t.Fatalf("preview status=%d", r.Code)
+	}
+	page = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(page, req)
+	body = page.Body.String()
+	if !strings.Contains(body, "Renderer validation complete") || strings.Contains(body, ">Reviewed<") {
+		t.Fatalf("completed renderer status is not truthful: %s", body)
+	}
+}
+
 func TestNetworkVerificationFailureReturnsInline(t *testing.T) {
 	h, state, helper, _, _ := guidedHandler(t)
 	helper.responses["wifi_status"] = helperResponse{OK: true, Data: map[string]any{"connected": false, "recovery_ap": false}}
