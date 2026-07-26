@@ -154,6 +154,104 @@ func (c APIClient) doJSON(ctx context.Context, method, path string, body any, ou
 	return nil
 }
 
+type eventSubSubscription struct {
+	ID        string            `json:"id"`
+	Type      string            `json:"type"`
+	Status    string            `json:"status"`
+	Condition map[string]string `json:"condition"`
+	Transport struct {
+		Method    string `json:"method"`
+		SessionID string `json:"session_id"`
+	} `json:"transport"`
+}
+
+func requiredSubscriptionMatches(s eventSubSubscription, broadcasterID string) bool {
+	switch s.Type {
+	case "channel.cheer":
+		return s.Condition["broadcaster_user_id"] == broadcasterID
+	case "channel.chat.message", "channel.chat.notification":
+		return s.Condition["broadcaster_user_id"] == broadcasterID && s.Condition["user_id"] == broadcasterID
+	case "channel.raid":
+		return s.Condition["to_broadcaster_user_id"] == broadcasterID
+	default:
+		return false
+	}
+}
+
+func (c APIClient) listSubscriptions(ctx context.Context) ([]eventSubSubscription, error) {
+	var all []eventSubSubscription
+	after := ""
+	for page := 0; page < 20; page++ {
+		path := "/helix/eventsub/subscriptions"
+		if after != "" {
+			path += "?after=" + url.QueryEscape(after)
+		}
+		var out struct {
+			Data       []eventSubSubscription `json:"data"`
+			Pagination struct {
+				Cursor string `json:"cursor"`
+			} `json:"pagination"`
+		}
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Data...)
+		if out.Pagination.Cursor == "" {
+			return all, nil
+		}
+		after = out.Pagination.Cursor
+	}
+	return nil, errors.New("Twitch subscription listing exceeded page limit")
+}
+
+func (c APIClient) DeleteRequiredSubscriptions(ctx context.Context, broadcasterID string) error {
+	if broadcasterID == "" {
+		return errors.New("broadcaster ID is required")
+	}
+	subscriptions, err := c.listSubscriptions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, subscription := range subscriptions {
+		if !requiredSubscriptionMatches(subscription, broadcasterID) {
+			continue
+		}
+		if subscription.ID == "" {
+			return errors.New("Twitch subscription omitted ID")
+		}
+		if err := c.doJSON(ctx, http.MethodDelete, "/helix/eventsub/subscriptions?id="+url.QueryEscape(subscription.ID), nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c APIClient) VerifyRequiredSubscriptions(ctx context.Context, broadcasterID, sessionID string) error {
+	if broadcasterID == "" || sessionID == "" {
+		return errors.New("broadcaster and WebSocket session IDs are required")
+	}
+	subscriptions, err := c.listSubscriptions(ctx)
+	if err != nil {
+		return err
+	}
+	counts := map[string]int{}
+	for _, subscription := range subscriptions {
+		if !requiredSubscriptionMatches(subscription, broadcasterID) {
+			continue
+		}
+		if subscription.Status != "enabled" || subscription.Transport.Method != "websocket" || subscription.Transport.SessionID != sessionID {
+			return errors.New("required Twitch subscription is not enabled for the current WebSocket session")
+		}
+		counts[subscription.Type]++
+	}
+	for _, subscriptionType := range []string{"channel.cheer", "channel.chat.message", "channel.chat.notification", "channel.raid"} {
+		if counts[subscriptionType] != 1 {
+			return errors.New("required Twitch subscriptions are incomplete or duplicated")
+		}
+	}
+	return nil
+}
+
 func (c APIClient) SubscribeCheer(ctx context.Context, broadcasterID, sessionID string) error {
 	if broadcasterID == "" || sessionID == "" {
 		return errors.New("broadcaster and WebSocket session IDs are required")

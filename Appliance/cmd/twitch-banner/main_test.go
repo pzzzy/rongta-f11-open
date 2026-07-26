@@ -15,6 +15,19 @@ import (
 	"github.com/pzzzy/rongta-f11-open/appliance/internal/twitchgift"
 )
 
+func TestRuntimeLockRejectsOverlappingProcess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.lock")
+	first, err := acquireRuntimeLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if second, err := acquireRuntimeLock(path); err == nil {
+		second.Close()
+		t.Fatal("overlapping runtime lock acquired")
+	}
+}
+
 func TestWriteReadyMarkerIsAtomicAndNonsecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ready.json")
 	if err := writeReadyMarker(path, "12345"); err != nil {
