@@ -266,6 +266,20 @@ func TestNoPaperPreviewDoesNotRequireTwitch(t *testing.T) {
 	}
 }
 
+func TestCompletionCannotBypassTwitchAndEventSub(t *testing.T) {
+	h, state, _, _, _ := guidedHandler(t)
+	cookie := authenticate(t, h)
+	for _, checkpoint := range []setupstate.Checkpoint{setupstate.CheckpointWelcome, setupstate.CheckpointNetwork, setupstate.CheckpointPrinter, setupstate.CheckpointPreview} {
+		if err := state.state.Complete(checkpoint, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := postAction(t, h, cookie, "/action/complete", url.Values{})
+	if r.Code != http.StatusSeeOther || state.state.Completed(setupstate.CheckpointComplete) {
+		t.Fatalf("completion bypassed required stages: status=%d state=%#v", r.Code, state.state)
+	}
+}
+
 func TestPhysicalPrintAmbiguityCannotBeRetried(t *testing.T) {
 	h, state, helper, _, _ := guidedHandler(t)
 	cookie := authenticate(t, h)
