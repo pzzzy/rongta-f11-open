@@ -26,6 +26,7 @@ type Layout struct {
 	LogicalWidth, LogicalHeight, Margin int
 	FontSize                            float64
 	Font                                FontStyle
+	FillHeight                          bool
 }
 
 // Comic Neue is an OFL-licensed Comic Sans-style face, not Microsoft's font.
@@ -117,11 +118,11 @@ func Plan(text string, w, h, margin int) (Layout, error) {
 	}
 	words := strings.Fields(text)
 	if len(words) < 2 {
-		return Layout{words, w, h, margin, bestSize(words, FontGoBold, w, h, margin), FontGoBold}, nil
+		return Layout{Lines: words, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: bestSize(words, FontGoBold, w, h, margin), Font: FontGoBold}, nil
 	}
 	if len(words) > 2 && strings.EqualFold(words[0], "PLEASE") && strings.EqualFold(words[1], "DON'T") {
 		lines := []string{strings.Join(words[:2], " "), strings.Join(words[2:], " ")}
-		return Layout{lines, w, h, margin, bestSize(lines, FontGoBold, w, h, margin), FontGoBold}, nil
+		return Layout{Lines: lines, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: bestSize(lines, FontGoBold, w, h, margin), Font: FontGoBold}, nil
 	}
 	var best Layout
 	bestScore := -1.0
@@ -138,7 +139,7 @@ func Plan(text string, w, h, margin int) (Layout, error) {
 		}
 		if score > bestScore {
 			bestScore = score
-			best = Layout{lines, w, h, margin, size, FontGoBold}
+			best = Layout{Lines: lines, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: size, Font: FontGoBold}
 		}
 	}
 	return best, nil
@@ -193,7 +194,7 @@ func PlanLines(text string, w, h, margin, lineCount int, style FontStyle) (Layou
 			balance := float64(minW) / float64(maxW)
 			if size > bestSizeSeen+0.001 || (math.Abs(size-bestSizeSeen) <= 0.001 && balance > bestBalance) {
 				bestSizeSeen, bestBalance = size, balance
-				best = Layout{lines, w, h, margin, size, style}
+				best = Layout{Lines: lines, LogicalWidth: w, LogicalHeight: h, Margin: margin, FontSize: size, Font: style, FillHeight: lineCount == 2}
 			}
 		}
 	}
@@ -229,6 +230,9 @@ func Render(l Layout) ([]byte, error) {
 		d.Dot = fixed.P((l.LogicalWidth-width)/2, baseline)
 		d.DrawString(line)
 	}
+	if l.FillHeight {
+		fillHeight(img, l.Margin)
+	}
 	out := make([]byte, l.LogicalHeight*l.LogicalWidth)
 	printW := l.LogicalHeight
 	printH := l.LogicalWidth
@@ -242,6 +246,34 @@ func Render(l Layout) ([]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+func fillHeight(img *image.Gray, margin int) {
+	first, last := img.Rect.Dy(), -1
+	for y := 0; y < img.Rect.Dy(); y++ {
+		for x := 0; x < img.Rect.Dx(); x++ {
+			if img.GrayAt(x, y).Y < 250 {
+				if y < first {
+					first = y
+				}
+				if y > last {
+					last = y
+				}
+			}
+		}
+	}
+	if last <= first || margin < 0 || 2*margin >= img.Rect.Dy() {
+		return
+	}
+	source := append([]byte(nil), img.Pix...)
+	for i := range img.Pix {
+		img.Pix[i] = 255
+	}
+	targetFirst, targetLast := margin, img.Rect.Dy()-1-margin
+	for y := targetFirst; y <= targetLast; y++ {
+		sourceY := first + (y-targetFirst)*(last-first)/(targetLast-targetFirst)
+		copy(img.Pix[y*img.Stride:y*img.Stride+img.Rect.Dx()], source[sourceY*img.Stride:sourceY*img.Stride+img.Rect.Dx()])
+	}
 }
 
 func max(a, b int) int {

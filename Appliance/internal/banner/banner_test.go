@@ -84,6 +84,36 @@ func TestComicSansStyleIsExplicitAndNonDefault(t *testing.T) {
 	}
 }
 
+func TestForcedTwoLineRenderFillsPrintableVerticalSpan(t *testing.T) {
+	l, err := PlanLines("PLEASE DON'T LEAVE YOUR TRAILER HERE", 3045, 1664, 45, 2, FontGoBold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gray, err := Render(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, last := 1664, -1
+	for y := 0; y < 3045; y++ {
+		for x := 0; x < 1664; x++ {
+			if gray[y*1664+x] < 250 {
+				if x < first {
+					first = x
+				}
+				if x > last {
+					last = x
+				}
+			}
+		}
+	}
+	if first < 45 || last > 1664-1-45 {
+		t.Fatalf("ink exceeds vertical margins: first=%d last=%d", first, last)
+	}
+	if span := last - first + 1; span < 1664-2*45-4 {
+		t.Fatalf("forced two-line ink uses only %d of %d printable vertical dots", span, 1664-2*45)
+	}
+}
+
 func TestRenderLandscapeRotatesToPrinterGeometry(t *testing.T) {
 	l, err := Plan("PLEASE DON'T PARK YOUR TRAILER HERE", 3045, 1664, 45)
 	if err != nil {
