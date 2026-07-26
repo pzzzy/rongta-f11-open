@@ -26,6 +26,78 @@ func TestAuthorizationURLUsesExactRedirectAndScope(t *testing.T) {
 	}
 }
 
+func TestReconcileSubscriptionsDeletesOnlyRequiredPinnedBroadcasterSubscriptions(t *testing.T) {
+	var deleted []string
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			io.WriteString(w, `{"data":[
+				{"id":"old-chat","type":"channel.chat.message","status":"websocket_disconnected","condition":{"broadcaster_user_id":"52588311","user_id":"52588311"},"transport":{"method":"websocket","session_id":"old"}},
+				{"id":"other-owner","type":"channel.cheer","status":"enabled","condition":{"broadcaster_user_id":"999"},"transport":{"method":"websocket","session_id":"other"}},
+				{"id":"other-type","type":"stream.online","status":"enabled","condition":{"broadcaster_user_id":"52588311"},"transport":{"method":"webhook"}}
+			],"pagination":{}}`)
+		case http.MethodDelete:
+			deleted = append(deleted, r.URL.Query().Get("id"))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("method=%s", r.Method)
+		}
+	}))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.DeleteRequiredSubscriptions(context.Background(), "52588311"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(deleted, []string{"old-chat"}) {
+		t.Fatalf("deleted=%v", deleted)
+	}
+}
+
+func TestDeleteRequiredSubscriptionsListsAllPagesBeforeMutation(t *testing.T) {
+	var sequence []string
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			sequence = append(sequence, "get:"+r.URL.Query().Get("after"))
+			if r.URL.Query().Get("after") == "" {
+				io.WriteString(w, `{"data":[{"id":"one","type":"channel.cheer","condition":{"broadcaster_user_id":"52588311"}}],"pagination":{"cursor":"next"}}`)
+			} else {
+				io.WriteString(w, `{"data":[{"id":"two","type":"channel.raid","condition":{"to_broadcaster_user_id":"52588311"}}],"pagination":{}}`)
+			}
+			return
+		}
+		sequence = append(sequence, "delete:"+r.URL.Query().Get("id"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.DeleteRequiredSubscriptions(context.Background(), "52588311"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"get:", "get:next", "delete:one", "delete:two"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("sequence=%v want=%v", sequence, want)
+	}
+}
+
+func TestVerifyRequiredSubscriptionsRequiresExactlyCurrentEnabledSession(t *testing.T) {
+	body := `{"data":[
+		{"id":"1","type":"channel.cheer","status":"enabled","condition":{"broadcaster_user_id":"52588311"},"transport":{"method":"websocket","session_id":"current"}},
+		{"id":"2","type":"channel.chat.message","status":"enabled","condition":{"broadcaster_user_id":"52588311","user_id":"52588311"},"transport":{"method":"websocket","session_id":"current"}},
+		{"id":"3","type":"channel.chat.notification","status":"enabled","condition":{"broadcaster_user_id":"52588311","user_id":"52588311"},"transport":{"method":"websocket","session_id":"current"}},
+		{"id":"4","type":"channel.raid","status":"enabled","condition":{"to_broadcaster_user_id":"52588311"},"transport":{"method":"websocket","session_id":"current"}}
+	],"pagination":{}}`
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }))
+	defer s.Close()
+	c := APIClient{ClientID: "cid", AccessToken: "token", BaseURL: s.URL, HTTP: s.Client()}
+	if err := c.VerifyRequiredSubscriptions(context.Background(), "52588311", "current"); err != nil {
+		t.Fatal(err)
+	}
+	body = strings.Replace(body, `"session_id":"current"`, `"session_id":"stale"`, 1)
+	if err := c.VerifyRequiredSubscriptions(context.Background(), "52588311", "current"); err == nil {
+		t.Fatal("stale session accepted")
+	}
+}
+
 func TestSubscribeCheerUsesSessionAndBroadcaster(t *testing.T) {
 	var gotPath, gotAuth, gotClient string
 	var got map[string]any

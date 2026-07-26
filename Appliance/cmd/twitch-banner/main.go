@@ -75,6 +75,21 @@ func loadToken(path string) (t twitchbanner.Token, err error) {
 
 var requiredSubscriptions = []string{"channel.cheer", "channel.chat.message", "channel.chat.notification", "channel.raid"}
 
+func acquireRuntimeLock(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, errors.New("another twitch-banner runtime is active")
+	}
+	return file, nil
+}
+
 func writeReadyMarker(path, broadcaster string) error {
 	marker := struct {
 		BroadcasterID string   `json:"broadcaster_id"`
@@ -318,6 +333,10 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor, gift
 	if err != nil {
 		return err
 	}
+	if err = api.DeleteRequiredSubscriptions(ctx, broadcaster); err != nil {
+		_ = conn.Close()
+		return err
+	}
 	if err = api.SubscribeCheer(ctx, broadcaster, w.Payload.Session.ID); err != nil {
 		_ = conn.Close()
 		return err
@@ -331,6 +350,10 @@ func runConnection(ctx context.Context, c config, p twitchbanner.Processor, gift
 		return err
 	}
 	if err = api.SubscribeRaid(ctx, broadcaster, w.Payload.Session.ID); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	if err = api.VerifyRequiredSubscriptions(ctx, broadcaster, w.Payload.Session.ID); err != nil {
 		_ = conn.Close()
 		return err
 	}
@@ -470,6 +493,11 @@ func run(ctx context.Context, c config) error {
 	if info, err := os.Stat("/usr/local/bin/raidprint"); err != nil || info.Mode()&0111 == 0 {
 		return errors.New("raidprint is missing or not executable")
 	}
+	lock, err := acquireRuntimeLock(filepath.Join(filepath.Dir(c.JournalFile), "runtime.lock"))
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	j, err := twitchbanner.OpenJournal(c.JournalFile)
 	if err != nil {
 		return err
